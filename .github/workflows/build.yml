@@ -110,7 +110,7 @@ jobs:
 
           git clone --depth=1 \
             --branch gki-android14-6.1 \
-            https://github.com/simonpunk/susfs4ksu.git susfs
+            https://github.com/deepongi-labs/susfs4ksu.git susfs
 
           echo "=== SUSFS PATCH FILES ==="
           find susfs/kernel_patches -maxdepth 2 -type f | sort
