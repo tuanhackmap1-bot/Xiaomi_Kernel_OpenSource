@@ -18,32 +18,9 @@ jobs:
         with:
           repository: MiCode/Xiaomi_Kernel_OpenSource
           ref: uke-v-oss
-          fetch-depth: 0
+          fetch-depth: 1
           
-      - name: FIND KERNEL 6.1.138
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "       FIND KERNEL 6.1.138"
-          echo "========================================"
-
-          echo "Current commit:"
-          git log -1 --oneline
-
-          echo ""
-          echo "Searching Git history..."
-
-          git log --all --oneline --decorate --grep="6.1.138" || true
-
-          echo ""
-          echo "Current kernel version:"
-          make -s kernelversion
-
-          echo ""
-          echo "========================================"
-          echo "       SEARCH COMPLETE"
-          echo "========================================"
+      
 
       # ============================================================
       # DEPENDENCIES
