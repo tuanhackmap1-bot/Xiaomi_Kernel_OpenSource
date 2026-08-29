@@ -65,28 +65,23 @@ jobs:
           set -e
 
           echo "========================================"
-          echo "     XIAOMI PAD 7 KERNEL SOURCE"
+          echo "   CHECK ORIGINAL KERNEL VERSION"
           echo "========================================"
 
-          echo "=== REMOTE ==="
-          git remote -v
+          KERNEL_VERSION=$(make -s kernelversion)
 
-          echo "=== COMMIT ==="
-          git rev-parse HEAD
+          echo "Kernel version: $KERNEL_VERSION"
 
-          echo "=== BRANCH ==="
-          git branch --show-current || true
+          if [ "$KERNEL_VERSION" != "6.1.138" ]; then
+            echo ""
+            echo "ERROR: WRONG KERNEL SOURCE"
+            echo "Expected: 6.1.138"
+            echo "Actual:   $KERNEL_VERSION"
+            exit 1
+          fi
 
-          echo "=== KERNEL VERSION ==="
-          make -s kernelversion
-
-          echo "=== KERNEL RELEASE ==="
-          make -s kernelrelease || true
-
-          echo "=== ARCH ==="
-          echo "${ARCH:-not-set}"
-
-          echo "========================================"
+          echo ""
+          echo "KERNEL SOURCE CHECK PASSED"
 
 
       # ============================================================
