@@ -364,18 +364,36 @@ jobs:
       # BUILD KERNEL
       # ============================================================
 
-      - name: Build kernel Image
+      - name: CHECK KERNEL VERSION + BUILD + VERIFY IMAGE
         run: |
           set -e
+
+          echo "========================================"
+          echo "       CHECK KERNEL VERSION"
+          echo "========================================"
+
+          EXPECTED_KERNEL_VERSION="6.1.138"
+
+          KERNEL_VERSION=$(make -s O=out ARCH=arm64 kernelversion)
+
+          echo "Expected: $EXPECTED_KERNEL_VERSION"
+          echo "Actual:   $KERNEL_VERSION"
+
+          if [ "$KERNEL_VERSION" != "$EXPECTED_KERNEL_VERSION" ]; then
+            echo "ERROR: WRONG KERNEL VERSION"
+            exit 1
+          fi
+
+          echo "KERNEL VERSION CHECK PASSED"
+
+          echo "========================================"
+          echo "          BUILD KERNEL IMAGE"
+          echo "========================================"
 
           export ARCH=arm64
           export SUBARCH=arm64
           export LLVM=1
           export LLVM_IAS=1
-
-          echo "========================================"
-          echo "             BUILD IMAGE"
-          echo "========================================"
 
           make \
             -j"$(nproc)" \
@@ -385,11 +403,45 @@ jobs:
             LLVM_IAS=1 \
             Image
 
-          test -f out/arch/arm64/boot/Image
+          echo "========================================"
+          echo "          VERIFY KERNEL IMAGE"
+          echo "========================================"
 
-          ls -lh out/arch/arm64/boot/Image
+          IMAGE="out/arch/arm64/boot/Image"
 
-          echo "IMAGE BUILD SUCCESS"
+          if [ ! -f "$IMAGE" ]; then
+            echo "ERROR: Image was not created"
+            exit 1
+          fi
+
+          echo "Image:"
+          ls -lh "$IMAGE"
+
+          echo "=== IMAGE VERSION ==="
+
+          strings "$IMAGE" | grep -m 10 \
+            -E "Linux version 6\.1\.138|6\.1\.138-" || true
+
+          echo "=== VERIFY VERSION ==="
+
+          if strings "$IMAGE" | grep -qE \
+            "Linux version 6\.1\.138|6\.1\.138-"; then
+
+            echo "========================================"
+            echo " IMAGE VERSION CHECK PASSED"
+            echo " KERNEL 6.1.138 CONFIRMED"
+            echo "========================================"
+
+          else
+
+            echo "========================================"
+            echo " ERROR: IMAGE IS NOT 6.1.138"
+            echo "========================================"
+            exit 1
+
+          fi
+
+          echo "KERNEL IMAGE BUILD + VERIFY PASSED"
 
 
       # ============================================================
