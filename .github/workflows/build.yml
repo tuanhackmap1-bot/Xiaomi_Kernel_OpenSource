@@ -137,21 +137,19 @@ jobs:
           
 
           echo "========================================"
-          echo "  STEP 5: CHECK SUSFS FILES"
+          echo "  STEP 5: INSPECT SUSFS"
           echo "========================================"
 
           echo "=== KERNEL VERSION ==="
           make -s kernelversion
 
-          echo "=== CHECK SUSFS DIRECTORY ==="
-          pwd
+          echo "=== SUSFS DIRECTORY ==="
           ls -la susfs
-          ls -la susfs/kernel_patches
 
-          echo "=== LIST SUSFS PATCHES ==="
+          echo "=== KERNEL PATCHES ==="
           find susfs/kernel_patches -maxdepth 2 -type f -name '*.patch' -print
 
-          echo "=== STEP 5 DONE ==="
+          echo "=== STEP 5 INSPECTION DONE ==="
 
           echo "========================================"
           echo "  TEST SUSFS PATCH"
