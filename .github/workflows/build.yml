@@ -140,10 +140,23 @@ jobs:
 
           rm -rf susfs
 
-          git clone --depth=1 \
+          git clone \
             --branch gki-android14-6.1 \
             https://github.com/deepongi-labs/susfs4ksu.git \
             susfs
+
+          cd susfs
+
+          SUSFS_COMMIT=$(git log --format="%H" --grep="Bump version to v" -1)
+
+          if [ -z "$SUSFS_COMMIT" ]; then
+            echo "ERROR: Cannot find SUSFS Bump version commit"
+            exit 1
+          fi
+
+          git checkout "$SUSFS_COMMIT"
+
+          cd ..
 
           echo "=== SUSFS COMMIT ==="
 
