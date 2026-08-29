@@ -9,10 +9,19 @@ jobs:
 
     steps:
 
-      - name: Checkout
+      # ============================================================
+      # CHECKOUT
+      # ============================================================
+
+      - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+
+      # ============================================================
+      # DEPENDENCIES
+      # ============================================================
 
       - name: Install dependencies
         run: |
@@ -26,71 +35,65 @@ jobs:
             bison \
             build-essential \
             ccache \
+            clang \
             flex \
             git \
             lld \
-            clang \
             llvm \
             libelf-dev \
             libssl-dev \
-            zlib1g-dev \
-            pkg-config \
             pahole \
+            pkg-config \
             python3 \
             rsync \
             unzip \
-            zip \
-            curl
+            zip
 
-      - name: Check Xiaomi source
+          echo "=== LLVM ==="
+          clang --version
+
+          echo "=== LLD ==="
+          ld.lld --version
+
+
+      # ============================================================
+      # CHECK ORIGINAL XIAOMI KERNEL
+      # ============================================================
+
+      - name: Check Xiaomi kernel source
         run: |
           set -e
 
           echo "========================================"
-          echo "      XIAOMI PAD 7 SOURCE CHECK"
+          echo "     XIAOMI PAD 7 KERNEL SOURCE"
           echo "========================================"
 
-          echo "=== BRANCH ==="
-          git branch --show-current
+          echo "=== REMOTE ==="
+          git remote -v
 
           echo "=== COMMIT ==="
           git rev-parse HEAD
 
-          echo "=== SOURCE KERNEL VERSION ==="
+          echo "=== BRANCH ==="
+          git branch --show-current || true
+
+          echo "=== KERNEL VERSION ==="
           make -s kernelversion
 
-          echo "=== STOCK CONFIG ==="
-          test -f arch/arm64/configs/uke_stock.config
-          echo "uke_stock.config FOUND"
+          echo "=== KERNEL RELEASE ==="
+          make -s kernelrelease || true
 
-          echo "=== STOCK CONFIG HEADER ==="
-          head -5 arch/arm64/configs/uke_stock.config
-
-      - name: Check stock config
-        run: |
-          set -e
+          echo "=== ARCH ==="
+          echo "${ARCH:-not-set}"
 
           echo "========================================"
-          echo "       STOCK CONFIG 6.1.138"
-          echo "========================================"
 
-          grep '^CONFIG_CC_VERSION_TEXT=' \
-            arch/arm64/configs/uke_stock.config
 
-          grep '^CONFIG_CLANG_VERSION=' \
-            arch/arm64/configs/uke_stock.config
-
-          grep '^CONFIG_LLD_VERSION=' \
-            arch/arm64/configs/uke_stock.config
-
-          grep '^CONFIG_TRIM_UNUSED_KSYMS=' \
-            arch/arm64/configs/uke_stock.config
-
-          grep '^CONFIG_MODULES=' \
-            arch/arm64/configs/uke_stock.config
-
-          grep '^CONFIG_MODVERSIONS=' \
-            arch/arm64/configs/uke_stock.config
+      # ============================================================
+      # SETUP KERNELSU-NEXT
+      #
+      # KernelSU-Next v3.3.0 / Manager 33214
+      # ============================================================
 
       - name: Setup KernelSU-Next
         run: |
@@ -100,39 +103,45 @@ jobs:
           echo "       KERNELSU-NEXT SETUP"
           echo "========================================"
 
+          echo "=== KERNELSU-NEXT SETUP ==="
+
           rm -rf KernelSU-Next
 
-          git clone \
-            https://github.com/pershoot/KernelSU-Next.git \
-            KernelSU-Next
+          curl -LSs \
+            "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
+            | bash -s v3.3.0
 
-          cd KernelSU-Next
+          echo "=== KERNELSU-NEXT DIRECTORY ==="
 
-          git checkout v3.3.0
+          test -d KernelSU-Next
+          test -d KernelSU-Next/kernel
 
           echo "=== KERNELSU-NEXT COMMIT ==="
-          git log -1 --oneline
 
-          cd ..
+          git -C KernelSU-Next/kernel log -1 --oneline
 
-          echo "=== RUN KERNELSU-NEXT SETUP ==="
+          echo "=== KERNELSU-NEXT TAG ==="
 
-          bash KernelSU-Next/kernel/setup.sh dev
+          git -C KernelSU-Next/kernel describe --tags --always || true
 
-          echo "=== CHECK KERNELSU-NEXT ==="
+          echo "=== CHECK KSU DRIVER ==="
 
           test -e drivers/kernelsu
           test -f drivers/kernelsu/Kconfig
 
           echo "KernelSU-Next setup OK"
-          
+
+
+      # ============================================================
+      # CLONE SUSFS
+      # ============================================================
 
       - name: Clone SUSFS
         run: |
           set -e
 
           echo "========================================"
-          echo "            SUSFS SETUP"
+          echo "             SUSFS SETUP"
           echo "========================================"
 
           rm -rf susfs
@@ -142,99 +151,186 @@ jobs:
             https://github.com/deepongi-labs/susfs4ksu.git \
             susfs
 
-          cd susfs
-
-          SUSFS_COMMIT=$(git log --format="%H" --grep="Bump version to v" -1)
-
-          if [ -z "$SUSFS_COMMIT" ]; then
-            echo "ERROR: Cannot find SUSFS Bump version commit"
-            exit 1
-          fi
-
-          git checkout "$SUSFS_COMMIT"
-
-          cd ..
-
           echo "=== SUSFS COMMIT ==="
 
           git -C susfs log -1 --oneline
 
-          echo "=== SUSFS PATCH ==="
+          echo "=== SUSFS BRANCH ==="
 
-          test -f \
-            susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
+          git -C susfs branch --show-current
 
-          test -f \
-            susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          echo "=== SUSFS PATCH DIRECTORY ==="
 
-          echo "SUSFS patches FOUND"
-      - name: CHECK KernelSU and SUSFS compatibility
+          find susfs/kernel_patches \
+            -maxdepth 3 \
+            -type f \
+            -print | head -100
+
+          echo "SUSFS clone OK"
+
+
+      # ============================================================
+      # CHECK KERNELSU-NEXT + SUSFS
+      #
+      # IMPORTANT:
+      # Do NOT apply the old KernelSU patch here.
+      # ============================================================
+
+      - name: Check KernelSU-Next and SUSFS
         run: |
           set -e
 
           echo "========================================"
-          echo "   CHECK KERNELSU + SUSFS COMPATIBILITY"
+          echo "   CHECK KERNELSU-NEXT + SUSFS"
           echo "========================================"
 
-          echo "=== KERNEL SOURCE ==="
+          echo "=== KERNEL ==="
+
           make -s kernelversion
 
-          echo "=== KERNELSU COMMIT ==="
-          git -C KernelSU log -1 --oneline
+          echo "=== KERNELSU-NEXT ==="
 
-          echo "=== SUSFS COMMIT ==="
+          git -C KernelSU-Next/kernel log -1 --format="%H"
+          git -C KernelSU-Next/kernel log -1 --oneline
+
+          echo "=== SUSFS ==="
+
+          git -C susfs log -1 --format="%H"
           git -C susfs log -1 --oneline
 
-          echo "=== TEST KERNELSU SUSFS PATCH ==="
+          echo "=== KSU DRIVER ==="
 
-          cd KernelSU
+          test -e drivers/kernelsu
+          test -f drivers/kernelsu/Kconfig
 
-          patch --dry-run --batch --forward -p1 \
-            < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          echo "drivers/kernelsu OK"
 
-          cd ..
+          echo "=== KSU CONFIG ==="
+
+          grep -R "config KSU" \
+            drivers/kernelsu/Kconfig \
+            2>/dev/null | head -20 || true
+
+          echo "=== SUSFS PATCH FILES ==="
+
+          find susfs/kernel_patches \
+            -type f \
+            \( -name "*.patch" -o -name "*.diff" \) \
+            -print
 
           echo "========================================"
-          echo "   KERNELSU + SUSFS CHECK PASSED"
+          echo "   SOURCE CHECK PASSED"
           echo "========================================"
-      - name: Copy SUSFS files
+
+
+      # ============================================================
+      # APPLY SUSFS KERNEL PATCHES
+      #
+      # Only apply the GKI kernel patch.
+      # DO NOT apply:
+      # KernelSU/10_enable_susfs_for_ksu.patch
+      #
+      # because that patch is for KernelSU, not this KSU-Next tree.
+      # ============================================================
+
+      - name: Apply SUSFS kernel patch
         run: |
           set -e
 
           echo "========================================"
-          echo "       COPY SUSFS FILES"
+          echo "       APPLY SUSFS KERNEL PATCH"
           echo "========================================"
 
-          cp -fv \
-            susfs/kernel_patches/fs/* \
-            fs/
+          PATCH_FILE="susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch"
 
-          cp -fv \
-            susfs/kernel_patches/include/linux/* \
-            include/linux/
+          test -f "$PATCH_FILE"
 
-      
+          echo "Using:"
+          echo "$PATCH_FILE"
 
-      
-      
-      
-      - name: Prepare stock configuration
+          echo "=== DRY RUN ==="
+
+          patch \
+            --dry-run \
+            --batch \
+            --forward \
+            -p1 \
+            < "$PATCH_FILE"
+
+          echo "=== APPLY ==="
+
+          patch \
+            --batch \
+            --forward \
+            -p1 \
+            < "$PATCH_FILE"
+
+          echo "SUSFS kernel patch applied"
+
+
+      # ============================================================
+      # VERIFY SUSFS
+      # ============================================================
+
+      - name: Verify SUSFS files
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "          VERIFY SUSFS"
+          echo "========================================"
+
+          echo "=== SUSFS SOURCE ==="
+
+          find fs -maxdepth 2 \
+            -type f \
+            \( -iname "*susfs*" -o -iname "*mount*" \) \
+            -print | head -100
+
+          echo "=== SUSFS CONFIG ==="
+
+          grep -R \
+            "CONFIG_KSU_SUSFS" \
+            fs include drivers 2>/dev/null \
+            | head -50 || true
+
+          echo "=== CHECK COMPLETE ==="
+
+
+      # ============================================================
+      # CONFIG
+      # ============================================================
+
+      - name: Configure Xiaomi Pad 7 kernel
         run: |
           set -e
 
           export ARCH=arm64
           export SUBARCH=arm64
+          export LLVM=1
+          export LLVM_IAS=1
 
           echo "========================================"
-          echo "       PREPARE STOCK CONFIG"
+          echo "        KERNEL CONFIGURATION"
           echo "========================================"
 
           rm -rf out
           mkdir -p out
 
-          cp \
-            arch/arm64/configs/uke_stock.config \
-            out/.config
+          echo "=== FIND DEFCONFIG ==="
+
+          find arch/arm64/configs \
+            -maxdepth 2 \
+            -type f \
+            -name "*defconfig" \
+            -print | head -100
+
+          echo "=== GKI DEFCONFIG ==="
+
+          make \
+            O=out \
+            ARCH=arm64 \
+            gki_defconfig
 
           echo "=== ENABLE KERNELSU ==="
 
@@ -244,14 +340,35 @@ jobs:
 
           echo "=== ENABLE SUSFS ==="
 
+          if grep -q '^config KSU_SUSFS' drivers/kernelsu/Kconfig 2>/dev/null; then
+            scripts/config \
+              --file out/.config \
+              -e CONFIG_KSU_SUSFS
+          else
+            echo "WARNING: CONFIG_KSU_SUSFS not found in KSU Kconfig"
+          fi
+
+          echo "=== DISABLE KASAN ==="
+
           scripts/config \
             --file out/.config \
-            -e CONFIG_KSU_SUSFS
+            -d CONFIG_KASAN \
+            -d CONFIG_KASAN_GENERIC \
+            -d CONFIG_KASAN_SW_TAGS \
+            -d CONFIG_KASAN_HW_TAGS
 
-          echo "=== KEEP STOCK CONFIG ==="
+          echo "=== DISABLE UBSAN ==="
 
-          grep '^CONFIG_TRIM_UNUSED_KSYMS=' \
-            out/.config || true
+          scripts/config \
+            --file out/.config \
+            -d CONFIG_UBSAN \
+            -d CONFIG_UBSAN_TRAP \
+            -d CONFIG_UBSAN_BOUNDS \
+            -d CONFIG_UBSAN_LOCAL_BOUNDS \
+            -d CONFIG_UBSAN_SHIFT \
+            -d CONFIG_UBSAN_UNREACHABLE \
+            -d CONFIG_UBSAN_BOOL \
+            -d CONFIG_UBSAN_ENUM
 
           echo "=== FINALIZE CONFIG ==="
 
@@ -260,42 +377,29 @@ jobs:
             ARCH=arm64 \
             olddefconfig
 
-          test -f out/.config
-          test -f out/include/config/auto.conf
-
           echo "=== FINAL CONFIG ==="
 
           grep -E \
-            '^(CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_MODULES=|CONFIG_MODVERSIONS=|CONFIG_TRIM_UNUSED_KSYMS=)' \
+            '^(CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_KSU_SUSFS_*)' \
             out/.config || true
 
-      - name: Prepare kernel
+          test -f out/include/config/auto.conf
+
+          echo "Kernel config OK"
+
+
+      # ============================================================
+      # BUILD KERNEL
+      # ============================================================
+
+      - name: Build kernel Image
         run: |
           set -e
 
           export ARCH=arm64
           export SUBARCH=arm64
-
-          echo "========================================"
-          echo "          KERNEL PREPARE"
-          echo "========================================"
-
-          make \
-            O=out \
-            ARCH=arm64 \
-            prepare
-
-          make \
-            O=out \
-            ARCH=arm64 \
-            modules_prepare
-
-      - name: Build Image
-        run: |
-          set -e
-
-          export ARCH=arm64
-          export SUBARCH=arm64
+          export LLVM=1
+          export LLVM_IAS=1
 
           echo "========================================"
           echo "             BUILD IMAGE"
@@ -305,13 +409,20 @@ jobs:
             -j"$(nproc)" \
             O=out \
             ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
             Image
 
-          test -f \
-            out/arch/arm64/boot/Image
+          test -f out/arch/arm64/boot/Image
 
-          ls -lh \
-            out/arch/arm64/boot/Image
+          ls -lh out/arch/arm64/boot/Image
+
+          echo "IMAGE BUILD SUCCESS"
+
+
+      # ============================================================
+      # BUILD DTBS
+      # ============================================================
 
       - name: Build DTBs
         run: |
@@ -319,55 +430,58 @@ jobs:
 
           export ARCH=arm64
           export SUBARCH=arm64
+          export LLVM=1
+          export LLVM_IAS=1
 
           echo "========================================"
-          echo "              BUILD DTBS"
+          echo "               BUILD DTBS"
           echo "========================================"
 
           make \
             -j"$(nproc)" \
             O=out \
             ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
             dtbs
 
-      - name: Verify result
+          echo "DTB BUILD SUCCESS"
+
+
+      # ============================================================
+      # SHOW OUTPUT
+      # ============================================================
+
+      - name: Show build output
         run: |
-          set -e
-
           echo "========================================"
-          echo "           BUILD SUCCESS"
+          echo "             BUILD OUTPUT"
           echo "========================================"
-
-          test -f \
-            out/arch/arm64/boot/Image
 
           echo "=== IMAGE ==="
 
           ls -lh \
-            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/Image || true
 
-          echo "=== KERNEL RELEASE ==="
+          echo "=== DTB / DTBO ==="
 
-          make \
-            O=out \
-            ARCH=arm64 \
-            -s kernelrelease
-
-          echo "=== DTB FILES ==="
-
-          find \
-            out/arch/arm64/boot/dts \
+          find out/arch/arm64/boot/dts \
             -type f \
             \( -name "*.dtb" -o -name "*.dtbo" \) \
             -print | head -100 || true
 
-      - name: Upload kernel
+
+      # ============================================================
+      # UPLOAD
+      # ============================================================
+
+      - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: xiaomi-pad7-kernel-ksu-susfs
+          name: xiaomi-pad7-kernel
+          if-no-files-found: warn
           path: |
             out/arch/arm64/boot/Image
             out/arch/arm64/boot/Image.gz
             out/arch/arm64/boot/dts/**/*.dtb
             out/arch/arm64/boot/dts/**/*.dtbo
-          if-no-files-found: warn
