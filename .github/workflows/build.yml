@@ -117,10 +117,6 @@ jobs:
 
           echo "KernelSU setup OK"
 
-          
-
-          cd ..
-
           bash KernelSU/kernel/setup.sh
 
           echo "=== CHECK KERNELSU ==="
