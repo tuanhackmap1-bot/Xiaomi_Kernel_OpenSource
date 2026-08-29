@@ -28,29 +28,27 @@ jobs:
           echo "   FIND REMOTE KERNEL 6.1.138"
           echo "========================================"
 
-          git fetch --quiet --unshallow 2>/dev/null || true
-
-          echo "=== CURRENT REF ==="
-          git rev-parse HEAD
-          git log -1 --oneline
-
-          echo ""
           echo "=== CURRENT KERNEL VERSION ==="
           make -s kernelversion
 
           echo ""
-          echo "=== SEARCH REMOTE BRANCHES ==="
+          echo "=== REMOTE PAD 7 REFS ==="
 
-          git ls-remote --heads https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
+          git ls-remote --heads \
+            https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
             | grep -Ei 'uke|pad.?7' || true
 
           echo ""
-          echo "=== SEARCH TAGS ==="
+          echo "=== REMOTE TAGS ==="
 
-          git ls-remote --tags https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
+          git ls-remote --tags \
+            https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
             | grep -Ei '6\.1\.138|uke|pad.?7' || true
 
           echo ""
+          echo "========================================"
+          echo "   SEARCH COMPLETE"
+          echo "========================================"
           echo "========================================"
           echo "   REMOTE SEARCH COMPLETE"
           echo "========================================"
