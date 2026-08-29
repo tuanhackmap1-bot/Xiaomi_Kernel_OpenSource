@@ -92,31 +92,39 @@ jobs:
           grep '^CONFIG_MODVERSIONS=' \
             arch/arm64/configs/uke_stock.config
 
-      - name: Setup KernelSU
+      - name: Setup KernelSU-Next
         run: |
           set -e
 
           echo "========================================"
-          echo "          KERNELSU SETUP"
+          echo "       KERNELSU-NEXT SETUP"
           echo "========================================"
 
-          rm -rf KernelSU
+          rm -rf KernelSU-Next
 
-          git clone --depth=1 \
-            https://github.com/tiann/KernelSU.git \
-            KernelSU
+          git clone \
+            https://github.com/pershoot/KernelSU-Next.git \
+            KernelSU-Next
 
-          echo "=== RUN KERNELSU SETUP ==="
+          cd KernelSU-Next
 
-          bash KernelSU/kernel/setup.sh
+          git checkout v3.3.0
 
-          echo "=== CHECK KERNELSU ==="
+          echo "=== KERNELSU-NEXT COMMIT ==="
+          git log -1 --oneline
+
+          cd ..
+
+          echo "=== RUN KERNELSU-NEXT SETUP ==="
+
+          bash KernelSU-Next/kernel/setup.sh dev
+
+          echo "=== CHECK KERNELSU-NEXT ==="
 
           test -e drivers/kernelsu
           test -f drivers/kernelsu/Kconfig
 
-          echo "KernelSU setup OK"
-
+          echo "KernelSU-Next setup OK"
           
 
       - name: Clone SUSFS
@@ -205,62 +213,11 @@ jobs:
             susfs/kernel_patches/include/linux/* \
             include/linux/
 
-      - name: Test KernelSU SUSFS patch
-        run: |
-          set -e
+      
 
-          echo "========================================"
-          echo "       TEST KERNELSU SUSFS"
-          echo "========================================"
-
-          cd KernelSU
-
-          patch --dry-run \
-            -p1 \
-            < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
-
-          cd ..
-
-          echo "KernelSU SUSFS patch test PASSED"
-
-      - name: Apply KernelSU SUSFS patch
-        run: |
-          set -e
-
-          cd KernelSU
-
-          patch \
-            -p1 \
-            < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
-
-          cd ..
-
-          echo "KernelSU SUSFS patch applied"
-
-      - name: Test kernel SUSFS patch
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "       TEST KERNEL SUSFS PATCH"
-          echo "========================================"
-
-          patch --dry-run \
-            -p1 \
-            < susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
-
-          echo "SUSFS kernel patch matches source"
-
-      - name: Apply kernel SUSFS patch
-        run: |
-          set -e
-
-          patch \
-            -p1 \
-            < susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
-
-          echo "SUSFS kernel patch applied"
-
+      
+      
+      
       - name: Prepare stock configuration
         run: |
           set -e
