@@ -238,63 +238,35 @@ jobs:
           set -e
 
           echo "========================================"
-          echo "       APPLY SUSFS KERNEL PATCH"
+          echo "       CHECK SUSFS KERNEL PATCH"
           echo "========================================"
 
           PATCH_FILE="susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch"
 
           test -f "$PATCH_FILE"
 
-          echo "Using:"
-          echo "$PATCH_FILE"
+          echo "=== FIRST FAILED HUNK CHECK ==="
 
-          echo "=== DRY RUN ==="
-
-          patch \
+          if patch \
             --dry-run \
             --batch \
             --forward \
             -p1 \
             < "$PATCH_FILE"
-
-          echo "=== APPLY ==="
-
-          patch \
-            --batch \
-            --forward \
-            -p1 \
-            < "$PATCH_FILE"
-
-          echo "SUSFS kernel patch applied"
-
-
-      # ============================================================
-      # VERIFY SUSFS
-      # ============================================================
-
-      - name: Verify SUSFS files
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "          VERIFY SUSFS"
-          echo "========================================"
-
-          echo "=== SUSFS SOURCE ==="
-
-          find fs -maxdepth 2 \
-            -type f \
-            \( -iname "*susfs*" -o -iname "*mount*" \) \
-            -print | head -100
-
-          echo "=== SUSFS CONFIG ==="
-
-          grep -R \
-            "CONFIG_KSU_SUSFS" \
-            fs include drivers 2>/dev/null \
-            | head -50 || true
-
-          echo "=== CHECK COMPLETE ==="
+          then
+            echo "SUSFS patch applies cleanly"
+          else
+            echo ""
+            echo "========================================"
+            echo " SUSFS PATCH DOES NOT FULLY MATCH KERNEL"
+            echo "========================================"
+            echo ""
+            echo "The first known mismatch is in:"
+            echo "fs/proc/base.c"
+            echo ""
+            echo "DO NOT BUILD."
+            exit 1
+          fi
 
 
       # ============================================================
