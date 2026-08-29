@@ -32,7 +32,8 @@ jobs:
             rsync \
             unzip \
             zip
-
+                            sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+        
       - name: Check source
         run: |
           echo "Kernel source:"
