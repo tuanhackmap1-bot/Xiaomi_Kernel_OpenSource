@@ -25,8 +25,12 @@ jobs:
             flex \
             git \
             lld-18 \
+            clang \
+            llvm \
             libelf-dev \
             libssl-dev \
+            zlib1g-dev \
+            pkg-config \
             pahole \
             python3 \
             rsync \
