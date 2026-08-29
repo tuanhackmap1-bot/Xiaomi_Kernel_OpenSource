@@ -117,14 +117,7 @@ jobs:
 
           echo "KernelSU setup OK"
 
-          bash KernelSU/kernel/setup.sh
-
-          echo "=== CHECK KERNELSU ==="
-
-          test -e drivers/kernelsu
-          test -f drivers/kernelsu/Kconfig
-
-          echo "KernelSU setup OK"
+          
 
       - name: Clone SUSFS
         run: |
