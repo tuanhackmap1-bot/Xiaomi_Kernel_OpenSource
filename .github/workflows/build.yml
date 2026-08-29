@@ -1,0 +1,79 @@
+name: Build Xiaomi Pad 7 Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc \
+            bison \
+            build-essential \
+            ccache \
+            flex \
+            git \
+            libelf-dev \
+            libssl-dev \
+            pahole \
+            python3 \
+            rsync \
+            unzip \
+            zip
+
+      - name: Check source
+        run: |
+          echo "Kernel source:"
+          pwd
+          echo "Branch:"
+          git branch --show-current
+          echo "Kernel version:"
+          make kernelversion
+
+      - name: Build kernel
+        run: |
+          mkdir -p out
+
+          export ARCH=arm64
+          export SUBARCH=arm64
+
+          make O=out gki_defconfig
+
+          make -j"$(nproc)" O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            Image \
+            dtbs \
+            modules
+
+      - name: Show output
+        run: |
+          echo "=== Kernel ==="
+          ls -lh out/arch/arm64/boot/Image || true
+
+          echo "=== DTBs ==="
+          find out/arch/arm64/boot/dts -type f \
+            \( -name "*.dtb" -o -name "*.dtbo" \) \
+            -print | head -50 || true
+
+      - name: Upload kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-pad7-kernel
+          path: |
+            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/dts/**/*.dtb
+            out/arch/arm64/boot/dts/**/*.dtbo
+          if-no-files-found: warn
