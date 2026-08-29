@@ -137,28 +137,22 @@ jobs:
           
 
           echo "========================================"
-          echo "  STEP 5: CHECK SUSFS KERNEL PATCH"
+          echo "  STEP 5: INSPECT SUSFS PATCH"
           echo "========================================"
 
           echo "=== KERNEL VERSION ==="
           make -s kernelversion
 
-          echo "=== AVAILABLE SUSFS KERNEL PATCHES ==="
+          echo "=== SUSFS PATCHES AVAILABLE ==="
           find susfs/kernel_patches -maxdepth 1 -type f \
-            \( -name '50_add_susfs*.patch' \) \
-            -print | sort
+            -name '*.patch' -print | sort
 
-          echo "=== SELECT ANDROID14-6.1 PATCH ==="
+          echo "=== SUSFS 6.1 PATCHES ==="
+          find susfs/kernel_patches -maxdepth 1 -type f \
+            -name '50_add_susfs*.patch' -print
 
-          SUSFS_KERNEL_PATCH="susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch"
-
-          if [ ! -f "$SUSFS_KERNEL_PATCH" ]; then
-            echo "ERROR: Required SUSFS Android14 6.1 patch was not found"
-            exit 1
-          fi
-
-          echo "Using:"
-          echo "$SUSFS_KERNEL_PATCH"
+          echo "=== STOP BEFORE APPLY ==="
+          echo "SUSFS patch compatibility check required"
 
           echo "========================================"
           echo "  TEST SUSFS PATCH"
