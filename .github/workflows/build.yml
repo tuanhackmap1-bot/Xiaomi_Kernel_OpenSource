@@ -1,291 +1,324 @@
 name: Build Xiaomi Pad 7 Kernel
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: ubuntu-24.04
-
-steps:
-  - name: Checkout
-    uses: actions/checkout@v4
-    with:
-      fetch-depth: 1
-
-  - name: Install dependencies
-    run: |
-      sudo add-apt-repository universe
-      sudo apt-get update
-      sudo apt-get install -y \
-        bc \
-        bison \
-        build-essential \
-        ccache \
-        flex \
-        git \
-        clang \
-        llvm \
-        lld-18 \
-        libelf-dev \
-        libssl-dev \
-        zlib1g-dev \
-        pkg-config \
-        pahole \
-        python3 \
-        rsync \
-        unzip \
-        zip
-
-      sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
-
-  - name: Check source
-    run: |
-      set -e
-
-      echo "========================================"
-      echo "  VERIFY XIAOMI PAD 7 KERNEL SOURCE"
-      echo "========================================"
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      echo "=== REMOTE ==="
-      git remote -v
+      - name: Install dependencies
+        run: |
+          sudo add-apt-repository universe
+          sudo apt-get update
 
-      echo "=== BRANCH ==="
-      git branch --show-current
+          sudo apt-get install -y \
+            bc \
+            bison \
+            build-essential \
+            ccache \
+            flex \
+            git \
+            clang \
+            llvm \
+            lld-18 \
+            libelf-dev \
+            libssl-dev \
+            zlib1g-dev \
+            pkg-config \
+            pahole \
+            python3 \
+            rsync \
+            unzip \
+            zip
 
-      echo "=== COMMIT ==="
-      git rev-parse HEAD
+          sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
 
-      echo "=== KERNEL VERSION ==="
-      make -s kernelversion
+      - name: Check source
+        run: |
+          set -e
 
-      echo "=== PAD 7 CONFIG ==="
-      test -f arch/arm64/configs/vendor/uke_GKI.config
-      echo "uke_GKI.config found"
+          echo "========================================"
+          echo "  VERIFY XIAOMI PAD 7 KERNEL"
+          echo "========================================"
 
-      echo "========================================"
+          echo "=== REMOTE ==="
+          git remote -v
 
-  - name: Build Xiaomi custom kernel - KernelSU + SUSFS
-    run: |
-      set -e
+          echo "=== BRANCH ==="
+          git branch --show-current
 
-      export ARCH=arm64
-      export SUBARCH=arm64
-      export LLVM=1
-      export LLVM_IAS=1
+          echo "=== COMMIT ==="
+          git rev-parse HEAD
 
-      echo "========================================"
-      echo "  XIAOMI PAD 7 + KERNELSU + SUSFS"
-      echo "========================================"
+          echo "=== KERNEL VERSION ==="
+          make -s kernelversion
 
-      echo "=== KERNEL VERSION ==="
-      make -s kernelversion
+          echo "=== XIAOMI CONFIG ==="
+          test -f arch/arm64/configs/vendor/uke_GKI.config
+          echo "uke_GKI.config FOUND"
 
-      echo "=== CLEAN BUILD OUTPUT ==="
-      rm -rf out
-      mkdir -p out
+          echo "========================================"
 
-      echo "========================================"
-      echo "  STEP 1: INTEGRATE KERNELSU"
-      echo "========================================"
+      - name: Build Xiaomi Pad 7 Kernel - KernelSU + SUSFS
+        run: |
+          set -e
 
-      rm -rf KernelSU
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export LLVM=1
+          export LLVM_IAS=1
 
-      git clone --depth=1 \
-        https://github.com/tiann/KernelSU.git KernelSU
+          echo "========================================"
+          echo "  XIAOMI PAD 7 + KERNELSU + SUSFS"
+          echo "========================================"
 
-      test -f KernelSU/kernel/setup.sh
+          echo "=== KERNEL VERSION ==="
+          make -s kernelversion
 
-      echo "=== RUN KERNELSU SETUP ==="
-      bash KernelSU/kernel/setup.sh
+          echo "========================================"
+          echo "  STEP 1: KERNELSU"
+          echo "========================================"
 
-      echo "=== CHECK KERNELSU ==="
-      test -e drivers/kernelsu
-      test -f drivers/Kconfig
-      grep -q 'CONFIG_KSU' KernelSU/kernel/Kconfig
+          rm -rf KernelSU
 
-      echo "KernelSU integration OK"
+          git clone --depth=1 \
+            --branch v3.2.5 \
+            https://github.com/tiann/KernelSU.git \
+            KernelSU
 
-      echo "========================================"
-      echo "  STEP 2: CLONE SUSFS"
-      echo "========================================"
+          test -f KernelSU/kernel/setup.sh
 
-      rm -rf susfs
+          echo "=== KERNELSU VERSION ==="
+          cd KernelSU
+          git describe --tags --always
+          cd ..
 
-      git clone --depth=1 \
-        --branch gki-android14-6.1 \
-        --filter=blob:none \
-        https://github.com/deepongi-labs/susfs4ksu.git susfs
+          echo "=== RUN KERNELSU SETUP ==="
 
-      test -d susfs/kernel_patches
+          bash KernelSU/kernel/setup.sh v3.2.5
 
-      echo "=== SUSFS VERSION ==="
-      cd susfs
-      git log -1 --oneline
-      cd ..
+          echo "=== CHECK KERNELSU ==="
 
-      echo "=== SUSFS PATCHES ==="
-      find susfs/kernel_patches -type f -name '*.patch' -print
+          test -e drivers/kernelsu
+          test -f drivers/kernelsu/Kconfig
 
-      echo "========================================"
-      echo "  STEP 3: PREPARE SUSFS FILES"
-      echo "========================================"
+          echo "KernelSU integration OK"
 
-      cp -fv susfs/kernel_patches/fs/* fs/
-      cp -fv susfs/kernel_patches/include/linux/* include/linux/
+          echo "========================================"
+          echo "  STEP 2: CLONE SUSFS"
+          echo "========================================"
 
-      test -f susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
-      test -f susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
+          rm -rf susfs
 
-      echo "SUSFS files copied"
+          git clone --depth=1 \
+            --branch gki-android14-6.1 \
+            https://github.com/deepongi-labs/susfs4ksu.git \
+            susfs
 
-      echo "========================================"
-      echo "  STEP 4: PATCH KERNELSU"
-      echo "========================================"
+          test -d susfs/kernel_patches
 
-      cd KernelSU
+          echo "=== SUSFS COMMIT ==="
+          cd susfs
+          git log -1 --oneline
+          cd ..
 
-      patch --dry-run -p1 \
-        < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          echo "=== CHECK SUSFS PATCHES ==="
 
-      patch -p1 \
-        < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          test -f \
+            susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
 
-      cd ..
+          test -f \
+            susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
 
-      echo "KernelSU SUSFS patch applied"
+          echo "SUSFS patches FOUND"
 
-      echo "========================================"
-      echo "  STEP 5: TEST KERNEL SUSFS PATCH"
-      echo "========================================"
+          echo "========================================"
+          echo "  STEP 3: COPY SUSFS FILES"
+          echo "========================================"
 
-      echo "=== TEST PATCH ==="
+          cp -fv \
+            susfs/kernel_patches/fs/* \
+            fs/
 
-      if patch --dry-run -p1 \
-        < susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
-      then
-        echo "SUSFS patch matches this kernel source"
-      else
-        echo "ERROR: SUSFS patch does NOT match this Xiaomi kernel"
-        echo "STOP - DO NOT APPLY PATCH"
-        exit 1
-      fi
+          cp -fv \
+            susfs/kernel_patches/include/linux/* \
+            include/linux/
 
-      echo "========================================"
-      echo "  STEP 6: APPLY SUSFS PATCH"
-      echo "========================================"
+          echo "SUSFS files copied"
 
-      patch -p1 \
-        < susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
+          echo "========================================"
+          echo "  STEP 4: PATCH KERNELSU"
+          echo "========================================"
 
-      echo "SUSFS kernel patch applied"
+          cd KernelSU
 
-      echo "========================================"
-      echo "  STEP 7: CONFIGURE KERNEL"
-      echo "========================================"
+          patch --dry-run -p1 \
+            < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
 
-      echo "=== GKI DEFCONFIG ==="
+          patch -p1 \
+            < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
 
-      make O=out ARCH=arm64 gki_defconfig </dev/null
+          cd ..
 
-      echo "=== APPLY XIAOMI PAD 7 CONFIG ==="
+          echo "KernelSU SUSFS patch applied"
 
-      scripts/kconfig/merge_config.sh \
-        -m \
-        out/.config \
-        arch/arm64/configs/vendor/uke_GKI.config
+          echo "========================================"
+          echo "  STEP 5: TEST SUSFS KERNEL PATCH"
+          echo "========================================"
 
-      echo "=== ENABLE KERNELSU ==="
+          if patch --dry-run -p1 \
+            < susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
+          then
+            echo "SUSFS PATCH MATCHES KERNEL SOURCE"
+          else
+            echo "========================================"
+            echo "ERROR: SUSFS PATCH DOES NOT MATCH"
+            echo "THIS XIAOMI KERNEL SOURCE"
+            echo "========================================"
+            exit 1
+          fi
 
-      scripts/config \
-        --file out/.config \
-        -e CONFIG_KSU
+          echo "========================================"
+          echo "  STEP 6: APPLY SUSFS KERNEL PATCH"
+          echo "========================================"
 
-      echo "=== ENABLE SUSFS ==="
+          patch -p1 \
+            < susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
 
-      scripts/config \
-        --file out/.config \
-        -e CONFIG_KSU_SUSFS
+          echo "SUSFS kernel patch applied"
 
-      echo "=== DISABLE KASAN ==="
+          echo "========================================"
+          echo "  STEP 7: PREPARE CONFIG"
+          echo "========================================"
 
-      scripts/config --file out/.config -d CONFIG_KASAN
-      scripts/config --file out/.config -d CONFIG_KASAN_GENERIC
-      scripts/config --file out/.config -d CONFIG_KASAN_SW_TAGS
-      scripts/config --file out/.config -d CONFIG_KASAN_HW_TAGS
+          rm -rf out
+          mkdir -p out
 
-      echo "=== DISABLE UBSAN ==="
+          echo "=== GKI DEFCONFIG ==="
 
-      scripts/config --file out/.config -d CONFIG_UBSAN
-      scripts/config --file out/.config -d CONFIG_UBSAN_TRAP
-      scripts/config --file out/.config -d CONFIG_UBSAN_BOUNDS
-      scripts/config --file out/.config -d CONFIG_UBSAN_LOCAL_BOUNDS
-      scripts/config --file out/.config -d CONFIG_UBSAN_SHIFT
-      scripts/config --file out/.config -d CONFIG_UBSAN_UNREACHABLE
-      scripts/config --file out/.config -d CONFIG_UBSAN_BOOL
-      scripts/config --file out/.config -d CONFIG_UBSAN_ENUM
+          make O=out \
+            ARCH=arm64 \
+            gki_defconfig
 
-      echo "========================================"
-      echo "  STEP 8: FINALIZE CONFIG"
-      echo "========================================"
+          echo "=== APPLY XIAOMI PAD 7 CONFIG ==="
 
-      make O=out ARCH=arm64 olddefconfig </dev/null
+          scripts/kconfig/merge_config.sh \
+            -m \
+            out/.config \
+            arch/arm64/configs/vendor/uke_GKI.config
 
-      echo "=== CONFIG CHECK ==="
+          echo "=== ENABLE KERNELSU ==="
 
-      grep -E \
-        '^(CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_MI_HARDWARE_ID=|CONFIG_MI_ENABLE_DP=|CONFIG_MIHW=|CONFIG_MI_WIRELESS=|CONFIG_MI_PEN_WIRELESS=)' \
-        out/.config || true
+          scripts/config \
+            --file out/.config \
+            -e CONFIG_KSU
 
-      echo "=== CHECK AUTO CONFIG ==="
-      test -f out/include/config/auto.conf
+          echo "=== ENABLE SUSFS ==="
 
-      echo "========================================"
-      echo "  STEP 9: BUILD IMAGE"
-      echo "========================================"
+          scripts/config \
+            --file out/.config \
+            -e CONFIG_KSU_SUSFS
 
-      make -j"$(nproc)" \
-        O=out \
-        ARCH=arm64 \
-        LLVM=1 \
-        LLVM_IAS=1 \
-        Image
+          echo "========================================"
+          echo "  STEP 8: DISABLE DEBUG SANITIZERS"
+          echo "========================================"
 
-      echo "========================================"
-      echo "  STEP 10: BUILD DTBS"
-      echo "========================================"
+          scripts/config --file out/.config -d CONFIG_KASAN
+          scripts/config --file out/.config -d CONFIG_KASAN_GENERIC
+          scripts/config --file out/.config -d CONFIG_KASAN_SW_TAGS
+          scripts/config --file out/.config -d CONFIG_KASAN_HW_TAGS
 
-      make -j"$(nproc)" \
-        O=out \
-        ARCH=arm64 \
-        LLVM=1 \
-        LLVM_IAS=1 \
-        dtbs
+          scripts/config --file out/.config -d CONFIG_UBSAN
+          scripts/config --file out/.config -d CONFIG_UBSAN_TRAP
+          scripts/config --file out/.config -d CONFIG_UBSAN_BOUNDS
+          scripts/config --file out/.config -d CONFIG_UBSAN_LOCAL_BOUNDS
+          scripts/config --file out/.config -d CONFIG_UBSAN_SHIFT
+          scripts/config --file out/.config -d CONFIG_UBSAN_UNREACHABLE
+          scripts/config --file out/.config -d CONFIG_UBSAN_BOOL
+          scripts/config --file out/.config -d CONFIG_UBSAN_ENUM
 
-      echo "========================================"
-      echo "  BUILD SUCCESS"
-      echo "========================================"
+          echo "========================================"
+          echo "  STEP 9: FINALIZE CONFIG"
+          echo "========================================"
 
-      ls -lh out/arch/arm64/boot/Image
+          make O=out \
+            ARCH=arm64 \
+            olddefconfig
 
-  - name: Show output
-    run: |
-      echo "=== Kernel ==="
-      ls -lh out/arch/arm64/boot/Image || true
+          echo "=== CHECK CONFIG ==="
 
-      echo "=== DTBs ==="
-      find out/arch/arm64/boot/dts \
-        -type f \
-        \( -name "*.dtb" -o -name "*.dtbo" \) \
-        -print | head -50 || true
+          grep -E \
+            '^(CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_MI_HARDWARE_ID=|CONFIG_MI_ENABLE_DP=|CONFIG_MIHW=|CONFIG_MI_WIRELESS=|CONFIG_MI_PEN_WIRELESS=)' \
+            out/.config || true
 
-  - name: Upload kernel
-    uses: actions/upload-artifact@v4
-    with:
-      name: xiaomi-pad7-kernel
-      path: |
-        out/arch/arm64/boot/Image
-        out/arch/arm64/boot/Image.gz
-        out/arch/arm64/boot/dts/**/*.dtb
-        out/arch/arm64/boot/dts/**/*.dtbo
-      if-no-files-found: warn
+          echo "=== CHECK AUTO CONFIG ==="
+
+          test -f out/include/config/auto.conf
+
+          echo "CONFIGURATION OK"
+
+          echo "========================================"
+          echo "  STEP 10: BUILD KERNEL IMAGE"
+          echo "========================================"
+
+          make -j"$(nproc)" \
+            O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            Image
+
+          echo "========================================"
+          echo "  STEP 11: BUILD DTBS"
+          echo "========================================"
+
+          make -j"$(nproc)" \
+            O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            dtbs
+
+          echo "========================================"
+          echo "  BUILD SUCCESS"
+          echo "========================================"
+
+          ls -lh out/arch/arm64/boot/Image
+
+      - name: Show output
+        run: |
+          echo "========================================"
+          echo "  BUILD OUTPUT"
+          echo "========================================"
+
+          echo "=== KERNEL ==="
+
+          ls -lh \
+            out/arch/arm64/boot/Image \
+            out/arch/arm64/boot/Image.gz \
+            2>/dev/null || true
+
+          echo "=== DTBS ==="
+
+          find out/arch/arm64/boot/dts \
+            -type f \
+            \( -name "*.dtb" -o -name "*.dtbo" \) \
+            -print | head -50 || true
+
+      - name: Upload kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-pad7-kernel
+          path: |
+            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/dts/**/*.dtb
+            out/arch/arm64/boot/dts/**/*.dtbo
+          if-no-files-found: warn
