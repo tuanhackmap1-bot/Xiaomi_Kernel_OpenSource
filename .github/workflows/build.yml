@@ -69,7 +69,7 @@ jobs:
           scripts/config --file out/.config -d CONFIG_UBSAN_ENUM
 
           echo "=== Finalize config ==="
-          make O=out ARCH=arm64 olddefconfig </dev/null
+          yes "" | make O=out ARCH=arm64 olddefconfig
           make -j"$(nproc)" O=out \
             ARCH=arm64 \
             LLVM=1 \
