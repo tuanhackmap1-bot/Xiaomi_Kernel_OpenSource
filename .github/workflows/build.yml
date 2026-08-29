@@ -47,13 +47,15 @@ jobs:
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
+          export LLVM=1
+          export LLVM_IAS=1
 
           echo "=== PREPARE CONFIG ==="
           rm -rf out
           mkdir -p out
 
           echo "=== GKI DEFCONFIG ==="
-          make O=out ARCH=arm64 gki_defconfig </dev/null
+          yes "" | make O=out ARCH=arm64 gki_defconfig
 
           echo "=== DISABLE KASAN ==="
           scripts/config --file out/.config -d CONFIG_KASAN
@@ -70,6 +72,9 @@ jobs:
           scripts/config --file out/.config -d CONFIG_UBSAN_UNREACHABLE
           scripts/config --file out/.config -d CONFIG_UBSAN_BOOL
           scripts/config --file out/.config -d CONFIG_UBSAN_ENUM
+
+          echo "=== FINALIZE CONFIG ==="
+          yes "" | make O=out ARCH=arm64 olddefconfig
 
           echo "=== BUILD KERNEL ==="
           make -j"$(nproc)" O=out \
