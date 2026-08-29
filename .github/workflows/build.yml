@@ -245,6 +245,12 @@ jobs:
 
           test -f "$PATCH_FILE"
 
+          echo "=== SHOW SUSFS BASE.C HUNK ==="
+
+          grep -n -A80 -B20 \
+            "fs/proc/base.c" \
+            "$PATCH_FILE" || true
+
           echo "=== FIRST FAILED HUNK CHECK ==="
 
           if patch \
@@ -267,7 +273,6 @@ jobs:
             echo "DO NOT BUILD."
             exit 1
           fi
-
 
       # ============================================================
       # CONFIG
