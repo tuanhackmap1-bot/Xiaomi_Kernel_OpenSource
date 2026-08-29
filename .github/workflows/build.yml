@@ -18,7 +18,7 @@ jobs:
         with:
           repository: MiCode/Xiaomi_Kernel_OpenSource
           ref: uke-v-oss
-          fetch-depth: 1
+          fetch-depth: 0
 
 
       # ============================================================
