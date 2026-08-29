@@ -50,7 +50,7 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
 
-          make O=out gki_defconfig
+          make O=out ARCH=arm64 gki_defconfig
 
           make -j"$(nproc)" O=out \
             ARCH=arm64 \
