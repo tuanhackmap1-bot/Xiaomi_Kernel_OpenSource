@@ -51,9 +51,11 @@ jobs:
           export SUBARCH=arm64
           echo "=== CHECK GKI CONFIG ==="
           grep -E 'CONFIG_(CFI_CLANG|LTO|ARCH_MMAP_RND_BITS|ARCH_MMAP_RND_COMPAT_BITS|COMPAT_32BIT_TIME|VMAP_STACK|RANDOMIZE_KSTACK_OFFSET|LOCK_EVENT_COUNTS)' arch/arm64/configs/gki_defconfig || true
-          echo "=== GKI DEFCONFIG ==="
+          echo "=== PREPARE CONFIG ==="
+          mkdir -p out
           cp arch/arm64/configs/gki_defconfig out/.config
-          make O=out ARCH=arm64 olddefconfig </dev/null
+          echo "=== CONFIG CHECK ==="
+          grep -E 'CONFIG_(CFI_CLANG|LTO|ARCH_MMAP_RND_BITS|ARCH_MMAP_RND_COMPAT_BITS|COMPAT_32BIT_TIME|VMAP_STACK|RANDOMIZE_KSTACK_OFFSET|LOCK_EVENT_COUNTS)' out/.config || true
           
 
           echo "=== Disable KASAN ==="
@@ -71,7 +73,8 @@ jobs:
           scripts/config --file out/.config -d CONFIG_UBSAN_UNREACHABLE
           scripts/config --file out/.config -d CONFIG_UBSAN_BOOL
           scripts/config --file out/.config -d CONFIG_UBSAN_ENUM
-         
+          echo "=== Finalize config ==="
+          make O=out ARCH=arm64 olddefconfig
           echo "=== Build kernel ==="
           make -j"$(nproc)" O=out \
             ARCH=arm64 \
