@@ -81,9 +81,26 @@ jobs:
           echo "=== RUN KERNELSU SETUP ==="
           bash KernelSU/kernel/setup.sh
 
-          echo "=== CHECK KERNELSU ==="
-          test -d kernel
-          test -f kernel/Kconfig
+          echo "=== CHECK KERNELSU SETUP ==="
+          echo "=== KERNELSU FILES ==="
+          ls -la kernel 2>/dev/null || true
+          ls -la KernelSU 2>/dev/null || true
+
+          echo "=== CHECK KERNELSU LINK ==="
+          if [ -e kernel ]; then
+            echo "KernelSU kernel directory exists"
+          else
+            echo "KernelSU kernel directory was not created"
+          fi
+
+          echo "=== CHECK KERNEL CONFIG ==="
+          if [ -f kernel/Kconfig ]; then
+            echo "kernel/Kconfig found"
+          elif [ -f KernelSU/kernel/Kconfig ]; then
+            echo "KernelSU/kernel/Kconfig found"
+          else
+            echo "WARNING: KernelSU Kconfig location differs"
+          fi
 
           echo "========================================"
           echo "  STEP 2: CLONE SUSFS"
