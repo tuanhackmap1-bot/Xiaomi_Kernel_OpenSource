@@ -45,26 +45,23 @@ jobs:
 
       - name: Build kernel
         run: |
-          mkdir -p out
-
           export ARCH=arm64
           export SUBARCH=arm64
-          echo "=== CHECK GKI CONFIG ==="
-          grep -E 'CONFIG_(CFI_CLANG|LTO|ARCH_MMAP_RND_BITS|ARCH_MMAP_RND_COMPAT_BITS|COMPAT_32BIT_TIME|VMAP_STACK|RANDOMIZE_KSTACK_OFFSET|LOCK_EVENT_COUNTS)' arch/arm64/configs/gki_defconfig || true
-          echo "=== PREPARE CONFIG ==="
-          mkdir -p out
-          cp arch/arm64/configs/gki_defconfig out/.config
-          echo "=== CONFIG CHECK ==="
-          grep -E 'CONFIG_(CFI_CLANG|LTO|ARCH_MMAP_RND_BITS|ARCH_MMAP_RND_COMPAT_BITS|COMPAT_32BIT_TIME|VMAP_STACK|RANDOMIZE_KSTACK_OFFSET|LOCK_EVENT_COUNTS)' out/.config || true
-          
 
-          echo "=== Disable KASAN ==="
+          echo "=== PREPARE CONFIG ==="
+          rm -rf out
+          mkdir -p out
+
+          echo "=== GKI DEFCONFIG ==="
+          make O=out ARCH=arm64 gki_defconfig </dev/null
+
+          echo "=== DISABLE KASAN ==="
           scripts/config --file out/.config -d CONFIG_KASAN
           scripts/config --file out/.config -d CONFIG_KASAN_GENERIC
           scripts/config --file out/.config -d CONFIG_KASAN_SW_TAGS
           scripts/config --file out/.config -d CONFIG_KASAN_HW_TAGS
 
-          echo "=== Disable UBSAN ==="
+          echo "=== DISABLE UBSAN ==="
           scripts/config --file out/.config -d CONFIG_UBSAN
           scripts/config --file out/.config -d CONFIG_UBSAN_TRAP
           scripts/config --file out/.config -d CONFIG_UBSAN_BOUNDS
@@ -73,8 +70,8 @@ jobs:
           scripts/config --file out/.config -d CONFIG_UBSAN_UNREACHABLE
           scripts/config --file out/.config -d CONFIG_UBSAN_BOOL
           scripts/config --file out/.config -d CONFIG_UBSAN_ENUM
-          
-          echo "=== Build kernel ==="
+
+          echo "=== BUILD KERNEL ==="
           make -j"$(nproc)" O=out \
             ARCH=arm64 \
             LLVM=1 \
