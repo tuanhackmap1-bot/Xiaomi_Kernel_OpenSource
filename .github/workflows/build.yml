@@ -167,7 +167,35 @@ jobs:
             susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
 
           echo "SUSFS patches FOUND"
+      - name: CHECK KernelSU and SUSFS compatibility
+        run: |
+          set -e
 
+          echo "========================================"
+          echo "   CHECK KERNELSU + SUSFS COMPATIBILITY"
+          echo "========================================"
+
+          echo "=== KERNEL SOURCE ==="
+          make -s kernelversion
+
+          echo "=== KERNELSU COMMIT ==="
+          git -C KernelSU log -1 --oneline
+
+          echo "=== SUSFS COMMIT ==="
+          git -C susfs log -1 --oneline
+
+          echo "=== TEST KERNELSU SUSFS PATCH ==="
+
+          cd KernelSU
+
+          patch --dry-run --batch --forward -p1 \
+            < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+
+          cd ..
+
+          echo "========================================"
+          echo "   KERNELSU + SUSFS CHECK PASSED"
+          echo "========================================"
       - name: Copy SUSFS files
         run: |
           set -e
