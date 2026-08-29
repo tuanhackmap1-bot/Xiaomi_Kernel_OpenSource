@@ -151,25 +151,7 @@ jobs:
 
           echo "=== STEP 5 INSPECTION DONE ==="
 
-          echo "========================================"
-          echo "  TEST SUSFS PATCH"
-          echo "========================================"
-
-          if patch --dry-run -p1 < "$SUSFS_KERNEL_PATCH"; then
-            echo "SUSFS patch matches the Xiaomi kernel source"
-          else
-            echo "ERROR: SUSFS patch DOES NOT match this Xiaomi kernel"
-            echo "STOP - DO NOT APPLY PATCH"
-            exit 1
-          fi
-
-          echo "========================================"
-          echo "  APPLY SUSFS PATCH"
-          echo "========================================"
-
-          patch -p1 < "$SUSFS_KERNEL_PATCH"
-
-          echo "=== SUSFS PATCH APPLIED ==="
+          
 
           echo "========================================"
           echo "  STEP 6: CONFIGURE KERNEL"
