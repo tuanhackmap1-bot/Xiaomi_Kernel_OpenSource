@@ -40,13 +40,25 @@ jobs:
         
       - name: Check source
         run: |
-          echo "Kernel source:"
-          pwd
-          echo "Branch:"
-          git branch --show-current
-          echo "Kernel version:"
-          make kernelversion
+          echo "========================================"
+          echo "  VERIFY ORIGINAL XIAOMI KERNEL"
+          echo "========================================"
 
+          echo "=== REMOTE ==="
+          git remote -v
+
+          echo "=== BRANCH ==="
+          git branch --show-current
+
+          echo "=== COMMIT ==="
+          git rev-parse HEAD
+
+          echo "=== KERNEL VERSION ==="
+          make -s kernelversion
+
+          echo "=== KERNEL RELEASE ==="
+          make -s kernelrelease || true
+          echo "========================================"
       - name: Build Xiaomi custom kernel - KernelSU + SUSFS
         run: |
           set -e
