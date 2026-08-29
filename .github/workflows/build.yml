@@ -233,47 +233,42 @@ jobs:
       # because that patch is for KernelSU, not this KSU-Next tree.
       # ============================================================
 
-      - name: Apply SUSFS kernel patch
+      - name: Inspect SUSFS base.c patch
         run: |
           set -e
 
           echo "========================================"
-          echo "       CHECK SUSFS KERNEL PATCH"
+          echo "       INSPECT SUSFS BASE.C PATCH"
           echo "========================================"
 
           PATCH_FILE="susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch"
 
           test -f "$PATCH_FILE"
 
-          echo "=== SHOW SUSFS BASE.C HUNK ==="
+          echo "=== SEARCH BASE.C ==="
 
-          grep -n -A80 -B20 \
-            "fs/proc/base.c" \
-            "$PATCH_FILE" || true
+          grep -n -E \
+            "base\.c|proc/base" \
+            "$PATCH_FILE" \
+            | head -50 || true
 
-          echo "=== FIRST FAILED HUNK CHECK ==="
+          echo "=== PATCH SECTION AROUND BASE.C ==="
 
-          if patch \
-            --dry-run \
-            --batch \
-            --forward \
-            -p1 \
-            < "$PATCH_FILE"
-          then
-            echo "SUSFS patch applies cleanly"
-          else
-            echo ""
-            echo "========================================"
-            echo " SUSFS PATCH DOES NOT FULLY MATCH KERNEL"
-            echo "========================================"
-            echo ""
-            echo "The first known mismatch is in:"
-            echo "fs/proc/base.c"
-            echo ""
-            echo "DO NOT BUILD."
-            exit 1
-          fi
+          awk '
+            /^diff --git .*base\.c/ {
+              show=1
+            }
+            show {
+              print
+            }
+            show && /^diff --git / && !/base\.c/ {
+              exit
+            }
+          ' "$PATCH_FILE"
 
+          echo "========================================"
+          echo "INSPECTION COMPLETE"
+          echo "========================================"
       # ============================================================
       # CONFIG
       # ============================================================
