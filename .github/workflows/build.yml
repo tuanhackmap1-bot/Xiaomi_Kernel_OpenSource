@@ -55,7 +55,7 @@ jobs:
           mkdir -p out
 
           echo "=== GKI DEFCONFIG ==="
-          yes "" | make O=out ARCH=arm64 gki_defconfig
+          make O=out ARCH=arm64 gki_defconfig </dev/null
 
           echo "=== DISABLE KASAN ==="
           scripts/config --file out/.config -d CONFIG_KASAN
@@ -73,8 +73,8 @@ jobs:
           scripts/config --file out/.config -d CONFIG_UBSAN_BOOL
           scripts/config --file out/.config -d CONFIG_UBSAN_ENUM
 
-          echo "=== FINALIZE CONFIG ==="
-          yes "" | make O=out ARCH=arm64 olddefconfig
+          echo "=== CHECK CONFIG ==="
+          grep -E '^(CONFIG_CFI_CLANG|CONFIG_LTO|CONFIG_SHADOW_CALL_STACK|CONFIG_ARM64_PTR_AUTH|CONFIG_ARM64_BTI|CONFIG_ARM64_MTE)=' out/.config || true
 
           echo "=== BUILD KERNEL ==="
           make -j"$(nproc)" O=out \
