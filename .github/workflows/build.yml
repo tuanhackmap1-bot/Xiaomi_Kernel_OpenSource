@@ -73,8 +73,16 @@ jobs:
           scripts/config --file out/.config -d CONFIG_UBSAN_BOOL
           scripts/config --file out/.config -d CONFIG_UBSAN_ENUM
 
-          echo "=== CHECK CONFIG ==="
-          grep -E '^(CONFIG_CFI_CLANG|CONFIG_LTO|CONFIG_SHADOW_CALL_STACK|CONFIG_ARM64_PTR_AUTH|CONFIG_ARM64_BTI|CONFIG_ARM64_MTE)=' out/.config || true
+          echo "=== FINALIZE CONFIG ==="
+          make O=out ARCH=arm64 olddefconfig </dev/null
+
+          echo "=== VERIFY CONFIG ==="
+          grep -E '^(CONFIG_(CFI_CLANG|SHADOW_CALL_STACK|ARM64_PTR_AUTH|ARM64_BTI|ARM64_MTE))=' out/.config || true
+
+          if [ ! -f out/include/config/auto.conf ]; then
+            echo "ERROR: auto.conf was not generated"
+            exit 1
+          fi
 
           echo "=== BUILD KERNEL ==="
           make -j"$(nproc)" O=out \
