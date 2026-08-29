@@ -49,6 +49,8 @@ jobs:
 
           export ARCH=arm64
           export SUBARCH=arm64
+          echo "=== CHECK GKI CONFIG ==="
+          grep -E 'CONFIG_(CFI_CLANG|LTO|ARCH_MMAP_RND_BITS|ARCH_MMAP_RND_COMPAT_BITS|COMPAT_32BIT_TIME|VMAP_STACK|RANDOMIZE_KSTACK_OFFSET|LOCK_EVENT_COUNTS)' arch/arm64/configs/gki_defconfig || true
           echo "=== GKI DEFCONFIG ==="
           make O=out ARCH=arm64 gki_defconfig
           
