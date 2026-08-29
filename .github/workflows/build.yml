@@ -52,7 +52,11 @@ jobs:
           ls -la arch/arm64/configs/
           test -f arch/arm64/configs/gki_defconfig && echo "gki_defconfig OK"
           cp arch/arm64/configs/gki_defconfig out/.config
-          make O=out ARCH=arm64 olddefconfig
+          scripts/config --file out/.config -d CONFIG_KASAN
+          scripts/config --file out/.config -d CONFIG_KASAN_GENERIC
+          scripts/config --file out/.config -d CONFIG_KASAN_SW_TAGS
+          scripts/config --file out/.config -d CONFIG_KASAN_HW_TAGS
+          make O=out ARCH=arm64 olddefconfig </dev/null
           make -j"$(nproc)" O=out \
             ARCH=arm64 \
             LLVM=1 \
