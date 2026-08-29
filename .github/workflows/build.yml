@@ -73,7 +73,6 @@ jobs:
           rm -rf KernelSU
 
           git clone --depth=1 \
-            --branch v3.2.4 \
             https://github.com/tiann/KernelSU.git KernelSU
 
           test -f KernelSU/kernel/setup.sh
@@ -112,6 +111,11 @@ jobs:
             --branch gki-android14-6.1 \
             https://github.com/deepongi-labs/susfs4ksu.git susfs
 
+          echo "=== SUSFS VERSION ==="
+          cd susfs
+          git log -1 --oneline
+          cd ..
+
           echo "=== SUSFS PATCH FILES ==="
           find susfs/kernel_patches -maxdepth 2 -type f | sort
 
@@ -128,62 +132,51 @@ jobs:
             include/linux/
 
           echo "========================================"
-          echo "  STEP 4: PATCH KERNELSU"
+          
+
+          echo "========================================"
+          echo "  STEP 5: CHECK SUSFS KERNEL PATCH"
           echo "========================================"
 
-          SUSFS_KSU_PATCH="susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+          echo "=== KERNEL VERSION ==="
+          make -s kernelversion
 
-          if [ ! -f "$SUSFS_KSU_PATCH" ]; then
-            echo "ERROR: KernelSU SUSFS patch not found"
+          echo "=== AVAILABLE SUSFS KERNEL PATCHES ==="
+          find susfs/kernel_patches -maxdepth 1 -type f \
+            \( -name '50_add_susfs*.patch' \) \
+            -print | sort
+
+          echo "=== SELECT ANDROID14-6.1 PATCH ==="
+
+          SUSFS_KERNEL_PATCH="susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch"
+
+          if [ ! -f "$SUSFS_KERNEL_PATCH" ]; then
+            echo "ERROR: Required SUSFS Android14 6.1 patch was not found"
             exit 1
           fi
 
-          cd KernelSU
-
-          echo "=== CHECK KSU PATCH ==="
-          patch --dry-run -p1 < "../$SUSFS_KSU_PATCH"
-
-          echo "=== APPLY KSU SUSFS PATCH ==="
-          patch -p1 < "../$SUSFS_KSU_PATCH"
-
-          cd ..
-
-          echo "========================================"
-          echo "  STEP 5: PATCH XIAOMI KERNEL"
-          echo "========================================"
-
-          SUSFS_KERNEL_PATCH=""
-
-          if [ -f "susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch" ]; then
-            SUSFS_KERNEL_PATCH="susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch"
-          elif [ -f "susfs/kernel_patches/50_add_susfs_in_kernel-6.1.patch" ]; then
-            SUSFS_KERNEL_PATCH="susfs/kernel_patches/50_add_susfs_in_kernel-6.1.patch"
-          else
-            SUSFS_KERNEL_PATCH="$(find susfs/kernel_patches \
-              -maxdepth 1 \
-              -type f \
-              \( -name '50_add_susfs*6.1*.patch' \
-              -o -name '50_add_susfs*android14*.patch' \) \
-              | head -n 1)"
-          fi
-
-          if [ -z "$SUSFS_KERNEL_PATCH" ]; then
-            echo "ERROR: SUSFS kernel 6.1 patch not found"
-            exit 1
-          fi
-
-          echo "Using SUSFS kernel patch:"
+          echo "Using:"
           echo "$SUSFS_KERNEL_PATCH"
 
-          echo "=== TEST KERNEL PATCH ==="
-          if ! patch --dry-run -p1 < "$SUSFS_KERNEL_PATCH"; then
-            echo "ERROR: SUSFS patch does not match Xiaomi kernel"
-            echo "STOP BUILDING"
+          echo "========================================"
+          echo "  TEST SUSFS PATCH"
+          echo "========================================"
+
+          if patch --dry-run -p1 < "$SUSFS_KERNEL_PATCH"; then
+            echo "SUSFS patch matches the Xiaomi kernel source"
+          else
+            echo "ERROR: SUSFS patch DOES NOT match this Xiaomi kernel"
+            echo "STOP - DO NOT APPLY PATCH"
             exit 1
           fi
 
-          echo "=== APPLY KERNEL PATCH ==="
+          echo "========================================"
+          echo "  APPLY SUSFS PATCH"
+          echo "========================================"
+
           patch -p1 < "$SUSFS_KERNEL_PATCH"
+
+          echo "=== SUSFS PATCH APPLIED ==="
 
           echo "========================================"
           echo "  STEP 6: CONFIGURE KERNEL"
@@ -201,9 +194,7 @@ jobs:
 
           echo "=== ENABLE SUSFS ==="
 
-          scripts/config \
-            --file out/.config \
-            -e CONFIG_KSU_SUSFS
+          
 
           echo "=== DISABLE KASAN ==="
 
@@ -238,9 +229,9 @@ jobs:
             out/.config || true
 
           echo "=== CHECK AUTO CONFIG ==="
-
           test -f out/include/config/auto.conf
 
+          echo "=== CONFIG FINALIZED ==="
           echo "========================================"
           echo "  STEP 8: BUILD IMAGE"
           echo "========================================"
