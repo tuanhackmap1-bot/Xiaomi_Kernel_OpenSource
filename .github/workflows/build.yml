@@ -51,7 +51,8 @@ jobs:
           export SUBARCH=arm64
           export KCONFIG_NONINTERACTIVE=1
           echo "=== GKI DEFCONFIG ==="
-          make O=out ARCH=arm64 gki_defconfig
+          make O=out ARCH=arm64 gki_defconfig || true
+          yes "" | make O=out ARCH=arm64 olddefconfig
 
           echo "=== Disable KASAN ==="
           scripts/config --file out/.config -d CONFIG_KASAN
@@ -69,7 +70,7 @@ jobs:
           scripts/config --file out/.config -d CONFIG_UBSAN_BOOL
           scripts/config --file out/.config -d CONFIG_UBSAN_ENUM
           echo "=== Finalize config ==="
-          make O=out ARCH=arm64 olddefconfig
+          yes "" | make O=out ARCH=arm64 olddefconfig
           echo "=== Build kernel ==="
           make -j"$(nproc)" O=out \
             ARCH=arm64 \
