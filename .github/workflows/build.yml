@@ -16,6 +16,8 @@ jobs:
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
+          repository: MiCode/Xiaomi_Kernel_OpenSource
+          ref: uke-v-oss
           fetch-depth: 1
 
 
