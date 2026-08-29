@@ -49,6 +49,7 @@ jobs:
 
           export ARCH=arm64
           export SUBARCH=arm64
+          export KCONFIG_NONINTERACTIVE=1
           echo "=== GKI DEFCONFIG ==="
           make O=out ARCH=arm64 gki_defconfig
 
