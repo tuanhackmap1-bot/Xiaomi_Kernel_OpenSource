@@ -43,27 +43,160 @@ jobs:
           echo "Kernel version:"
           make kernelversion
 
-      - name: Build kernel
+      - name: Build Xiaomi custom kernel - KernelSU + SUSFS
         run: |
+          set -e
+
           export ARCH=arm64
           export SUBARCH=arm64
           export LLVM=1
           export LLVM_IAS=1
 
-          echo "=== PREPARE CONFIG ==="
+          echo "========================================"
+          echo "  XIAOMI KERNEL + KERNELSU + SUSFS"
+          echo "========================================"
+
+          echo "=== CHECK KERNEL VERSION ==="
+          make kernelversion
+
+          KERNEL_VERSION="$(make -s kernelversion)"
+          echo "Kernel version: ${KERNEL_VERSION}"
+
+          echo "=== CLEAN BUILD OUTPUT ==="
           rm -rf out
           mkdir -p out
 
+          echo "========================================"
+          echo "  STEP 1: INTEGRATE KERNELSU"
+          echo "========================================"
+
+          rm -rf KernelSU
+
+          git clone --depth=1 \
+            --branch v3.2.4 \
+            https://github.com/tiann/KernelSU.git KernelSU
+
+          test -f KernelSU/kernel/setup.sh
+
+          echo "=== RUN KERNELSU SETUP ==="
+          bash KernelSU/kernel/setup.sh
+
+          echo "=== CHECK KERNELSU ==="
+          test -d kernel
+          test -f kernel/Kconfig
+
+          echo "========================================"
+          echo "  STEP 2: CLONE SUSFS"
+          echo "========================================"
+
+          rm -rf susfs
+
+          git clone --depth=1 \
+            --branch gki-android14-6.1 \
+            https://github.com/simonpunk/susfs4ksu.git susfs
+
+          echo "=== SUSFS PATCH FILES ==="
+          find susfs/kernel_patches -maxdepth 2 -type f | sort
+
+          echo "========================================"
+          echo "  STEP 3: PREPARE SUSFS FILES"
+          echo "========================================"
+
+          cp -fv \
+            susfs/kernel_patches/fs/* \
+            fs/
+
+          cp -fv \
+            susfs/kernel_patches/include/linux/* \
+            include/linux/
+
+          echo "========================================"
+          echo "  STEP 4: PATCH KERNELSU"
+          echo "========================================"
+
+          SUSFS_KSU_PATCH="susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+
+          if [ ! -f "$SUSFS_KSU_PATCH" ]; then
+            echo "ERROR: KernelSU SUSFS patch not found"
+            exit 1
+          fi
+
+          cd KernelSU
+
+          echo "=== CHECK KSU PATCH ==="
+          patch --dry-run -p1 < "../$SUSFS_KSU_PATCH"
+
+          echo "=== APPLY KSU SUSFS PATCH ==="
+          patch -p1 < "../$SUSFS_KSU_PATCH"
+
+          cd ..
+
+          echo "========================================"
+          echo "  STEP 5: PATCH XIAOMI KERNEL"
+          echo "========================================"
+
+          SUSFS_KERNEL_PATCH=""
+
+          if [ -f "susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch" ]; then
+            SUSFS_KERNEL_PATCH="susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch"
+          elif [ -f "susfs/kernel_patches/50_add_susfs_in_kernel-6.1.patch" ]; then
+            SUSFS_KERNEL_PATCH="susfs/kernel_patches/50_add_susfs_in_kernel-6.1.patch"
+          else
+            SUSFS_KERNEL_PATCH="$(find susfs/kernel_patches \
+              -maxdepth 1 \
+              -type f \
+              \( -name '50_add_susfs*6.1*.patch' \
+              -o -name '50_add_susfs*android14*.patch' \) \
+              | head -n 1)"
+          fi
+
+          if [ -z "$SUSFS_KERNEL_PATCH" ]; then
+            echo "ERROR: SUSFS kernel 6.1 patch not found"
+            exit 1
+          fi
+
+          echo "Using SUSFS kernel patch:"
+          echo "$SUSFS_KERNEL_PATCH"
+
+          echo "=== TEST KERNEL PATCH ==="
+          if ! patch --dry-run -p1 < "$SUSFS_KERNEL_PATCH"; then
+            echo "ERROR: SUSFS patch does not match Xiaomi kernel"
+            echo "STOP BUILDING"
+            exit 1
+          fi
+
+          echo "=== APPLY KERNEL PATCH ==="
+          patch -p1 < "$SUSFS_KERNEL_PATCH"
+
+          echo "========================================"
+          echo "  STEP 6: CONFIGURE KERNEL"
+          echo "========================================"
+
           echo "=== GKI DEFCONFIG ==="
+
           make O=out ARCH=arm64 gki_defconfig </dev/null
 
+          echo "=== ENABLE KERNELSU ==="
+
+          scripts/config \
+            --file out/.config \
+            -e CONFIG_KSU
+
+          echo "=== ENABLE SUSFS ==="
+
+          scripts/config \
+            --file out/.config \
+            -e CONFIG_KSU_SUSFS
+
           echo "=== DISABLE KASAN ==="
+
           scripts/config --file out/.config -d CONFIG_KASAN
           scripts/config --file out/.config -d CONFIG_KASAN_GENERIC
           scripts/config --file out/.config -d CONFIG_KASAN_SW_TAGS
           scripts/config --file out/.config -d CONFIG_KASAN_HW_TAGS
 
           echo "=== DISABLE UBSAN ==="
+
           scripts/config --file out/.config -d CONFIG_UBSAN
           scripts/config --file out/.config -d CONFIG_UBSAN_TRAP
           scripts/config --file out/.config -d CONFIG_UBSAN_BOUNDS
@@ -73,25 +206,51 @@ jobs:
           scripts/config --file out/.config -d CONFIG_UBSAN_BOOL
           scripts/config --file out/.config -d CONFIG_UBSAN_ENUM
 
-          echo "=== FINALIZE CONFIG ==="
+          echo "========================================"
+          echo "  STEP 7: FINALIZE CONFIG"
+          echo "========================================"
+
           make O=out ARCH=arm64 olddefconfig </dev/null
 
-          echo "=== VERIFY CONFIG ==="
-          grep -E '^(CONFIG_(CFI_CLANG|SHADOW_CALL_STACK|ARM64_PTR_AUTH|ARM64_BTI|ARM64_MTE))=' out/.config || true
+          echo "========================================"
+          echo "  CONFIG CHECK"
+          echo "========================================"
 
-          if [ ! -f out/include/config/auto.conf ]; then
-            echo "ERROR: auto.conf was not generated"
-            exit 1
-          fi
+          grep -E \
+            '^(CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_CFI_CLANG=|CONFIG_SHADOW_CALL_STACK=|CONFIG_ARM64_PTR_AUTH=|CONFIG_ARM64_BTI=|CONFIG_ARM64_MTE=)' \
+            out/.config || true
 
-          echo "=== BUILD KERNEL ==="
-          make -j"$(nproc)" O=out \
+          echo "=== CHECK AUTO CONFIG ==="
+
+          test -f out/include/config/auto.conf
+
+          echo "========================================"
+          echo "  STEP 8: BUILD IMAGE"
+          echo "========================================"
+
+          make -j"$(nproc)" \
+            O=out \
             ARCH=arm64 \
             LLVM=1 \
             LLVM_IAS=1 \
-            Image \
-            dtbs \
-            modules
+            Image
+
+          echo "========================================"
+          echo "  STEP 9: BUILD DTBS"
+          echo "========================================"
+
+          make -j"$(nproc)" \
+            O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            dtbs
+
+          echo "========================================"
+          echo "  BUILD SUCCESS"
+          echo "========================================"
+
+          ls -lh out/arch/arm64/boot/Image
 
       - name: Show output
         run: |
