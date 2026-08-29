@@ -23,6 +23,7 @@ jobs:
             ccache \
             flex \
             git \
+            11d \
             libelf-dev \
             libssl-dev \
             pahole \
