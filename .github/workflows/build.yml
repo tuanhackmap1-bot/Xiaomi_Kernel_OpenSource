@@ -20,7 +20,42 @@ jobs:
           ref: uke-v-oss
           fetch-depth: 1
           
-      
+      - name: FIND REMOTE KERNEL 6.1.138
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "   FIND REMOTE KERNEL 6.1.138"
+          echo "========================================"
+
+          git fetch --quiet --unshallow 2>/dev/null || true
+
+          echo "=== CURRENT REF ==="
+          git rev-parse HEAD
+          git log -1 --oneline
+
+          echo ""
+          echo "=== CURRENT KERNEL VERSION ==="
+          make -s kernelversion
+
+          echo ""
+          echo "=== SEARCH REMOTE BRANCHES ==="
+
+          git ls-remote --heads https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
+            | grep -Ei 'uke|pad.?7' || true
+
+          echo ""
+          echo "=== SEARCH TAGS ==="
+
+          git ls-remote --tags https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
+            | grep -Ei '6\.1\.138|uke|pad.?7' || true
+
+          echo ""
+          echo "========================================"
+          echo "   REMOTE SEARCH COMPLETE"
+          echo "========================================"
+
+          exit 0
 
       # ============================================================
       # DEPENDENCIES
