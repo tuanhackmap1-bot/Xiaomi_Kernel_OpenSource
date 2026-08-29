@@ -106,16 +106,18 @@ jobs:
             https://github.com/tiann/KernelSU.git \
             KernelSU
 
-          cd KernelSU
+          echo "=== RUN KERNELSU SETUP ==="
 
-          KSU_TAG="$(git tag --sort=-version:refname | head -1)"
+          bash KernelSU/kernel/setup.sh
 
-          if [ -n "$KSU_TAG" ]; then
-            echo "Using KernelSU tag: $KSU_TAG"
-            git checkout "$KSU_TAG"
-          else
-            echo "No tag found"
-          fi
+          echo "=== CHECK KERNELSU ==="
+
+          test -e drivers/kernelsu
+          test -f drivers/kernelsu/Kconfig
+
+          echo "KernelSU setup OK"
+
+          
 
           cd ..
 
