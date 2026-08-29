@@ -51,8 +51,8 @@ jobs:
           export SUBARCH=arm64
           ls -la arch/arm64/configs/
           test -f arch/arm64/configs/gki_defconfig && echo "gki_defconfig OK"
-          make O=out ARCH=arm64 gki_defconfig
-          yes "" | make O=out ARCH=arm64 olddefconfig
+          cp arch/arm64/configs/gki_defconfig out/.config
+          make O=out ARCH=arm64 olddefconfig
           make -j"$(nproc)" O=out \
             ARCH=arm64 \
             LLVM=1 \
