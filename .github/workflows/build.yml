@@ -137,22 +137,21 @@ jobs:
           
 
           echo "========================================"
-          echo "  STEP 5: INSPECT SUSFS PATCH"
+          echo "  STEP 5: CHECK SUSFS FILES"
           echo "========================================"
 
           echo "=== KERNEL VERSION ==="
           make -s kernelversion
 
-          echo "=== SUSFS PATCHES AVAILABLE ==="
-          find susfs/kernel_patches -maxdepth 1 -type f \
-            -name '*.patch' -print | sort
+          echo "=== CHECK SUSFS DIRECTORY ==="
+          pwd
+          ls -la susfs
+          ls -la susfs/kernel_patches
 
-          echo "=== SUSFS 6.1 PATCHES ==="
-          find susfs/kernel_patches -maxdepth 1 -type f \
-            -name '50_add_susfs*.patch' -print
+          echo "=== LIST SUSFS PATCHES ==="
+          find susfs/kernel_patches -maxdepth 2 -type f -name '*.patch' -print
 
-          echo "=== STOP BEFORE APPLY ==="
-          echo "SUSFS patch compatibility check required"
+          echo "=== STEP 5 DONE ==="
 
           echo "========================================"
           echo "  TEST SUSFS PATCH"
