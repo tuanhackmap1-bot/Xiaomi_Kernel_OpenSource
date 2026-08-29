@@ -107,17 +107,19 @@ jobs:
 
           rm -rf susfs
 
+          echo "=== CLONE SUSFS ==="
           git clone --depth=1 \
             --branch gki-android14-6.1 \
+            --progress \
             https://github.com/deepongi-labs/susfs4ksu.git susfs
+
+          echo "=== SUSFS CLONE DONE ==="
+          test -d susfs
 
           echo "=== SUSFS VERSION ==="
           cd susfs
           git log -1 --oneline
           cd ..
-
-          echo "=== SUSFS PATCH FILES ==="
-          find susfs/kernel_patches -maxdepth 2 -type f | sort
 
           echo "========================================"
           echo "  STEP 3: PREPARE SUSFS FILES"
