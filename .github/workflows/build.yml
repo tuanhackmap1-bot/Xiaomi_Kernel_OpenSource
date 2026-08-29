@@ -110,7 +110,7 @@ jobs:
           echo "=== CLONE SUSFS ==="
           git clone --depth=1 \
             --branch gki-android14-6.1 \
-            --progress \
+            --filter=blob:none \
             https://github.com/deepongi-labs/susfs4ksu.git susfs
 
           echo "=== SUSFS CLONE DONE ==="
