@@ -51,7 +51,7 @@ jobs:
           export SUBARCH=arm64
           export KCONFIG_NONINTERACTIVE=1
           echo "=== GKI DEFCONFIG ==="
-          make O=out ARCH=arm64 gki_defconfig
+          yes "" | make O=out ARCH=arm64 gki_defconfig
 
           echo "=== Disable KASAN ==="
           scripts/config --file out/.config -d CONFIG_KASAN
