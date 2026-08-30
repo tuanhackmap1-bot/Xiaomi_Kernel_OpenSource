@@ -1,4 +1,4 @@
-name: Analyze stock boot.img
+name: Analyze Stock Pad 7 boot.img
 
 on:
   workflow_dispatch:
@@ -9,306 +9,151 @@ jobs:
 
     steps:
 
-      # ============================================================
-      # CHECKOUT
-      # ============================================================
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-
-      # ============================================================
-      # CHECK BOOT.IMG
-      # ============================================================
-
-      - name: Check boot.img
+      - name: Download stock boot.img
         run: |
           set -e
 
-          cd "$GITHUB_WORKSPACE"
+          wget -O boot.img \
+            https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img
 
-          echo "========================================"
-          echo "       STOCK BOOT.IMG ANALYSIS"
-          echo "========================================"
-
-          if [ ! -f boot.img ]; then
-            echo ""
-            echo "ERROR: boot.img NOT FOUND"
-            echo ""
-            echo "Put your stock boot.img in the repository root:"
-            echo ""
-            echo "boot.img"
-            echo ""
-            exit 1
-          fi
-
-          echo ""
-          echo "boot.img found:"
+          echo "Downloaded:"
           ls -lh boot.img
 
-          echo ""
           echo "SHA256:"
           sha256sum boot.img
 
+          echo "Expected:"
+          echo "22f5e87ea6764e22bf191182d9dcffb0f423af53853e0f70dc0c278c94cb129a"
 
-      # ============================================================
-      # INSTALL TOOLS
-      # ============================================================
+          test "$(sha256sum boot.img | awk '{print $1}')" = \
+            "22f5e87ea6764e22bf191182d9dcffb0f423af53853e0f70dc0c278c94cb129a"
 
-      - name: Install analysis tools
+          echo "SHA256 OK"
+
+
+      - name: Install tools
         run: |
-          set -e
-
           sudo apt-get update
-
           sudo apt-get install -y \
             file \
             binwalk \
+            xxd \
+            strings \
             cpio \
             gzip \
             lz4 \
             xz-utils \
-            zstd \
-            python3 \
-            python3-pip \
-            unzip
+            zstd
 
 
-      # ============================================================
-      # FILE IDENTIFICATION
-      # ============================================================
-
-      - name: Identify boot.img
+      - name: Analyze boot.img
         run: |
           set -e
-
-          cd "$GITHUB_WORKSPACE"
-
-          echo "========================================"
-          echo "       FILE IDENTIFICATION"
-          echo "========================================"
-
-          file boot.img
-
-          echo ""
-          echo "First 256 bytes:"
-          xxd -l 256 boot.img || true
-
-
-      # ============================================================
-      # BOOT HEADER
-      # ============================================================
-
-      - name: Analyze Android boot header
-        run: |
-          set -e
-
-          cd "$GITHUB_WORKSPACE"
-
-          echo "========================================"
-          echo "       ANDROID BOOT HEADER"
-          echo "========================================"
-
-          python3 - <<'PY'
-          import struct
-
-          f = open("boot.img", "rb")
-          data = f.read(4096)
-          f.close()
-
-          print("Magic:", data[0:8])
-
-          if data[0:8] != b"ANDROID!":
-              print("WARNING: Android boot magic not found")
-              raise SystemExit(0)
-
-          kernel_size = struct.unpack_from("<I", data, 8)[0]
-          ramdisk_size = struct.unpack_from("<I", data, 16)[0]
-          second_size = struct.unpack_from("<I", data, 24)[0]
-          header_version = struct.unpack_from("<I", data, 40)[0]
-
-          print("Kernel size :", kernel_size)
-          print("Ramdisk size:", ramdisk_size)
-          print("Second size :", second_size)
-          print("Header ver. :", header_version)
-
-          if header_version >= 3:
-              os_version = struct.unpack_from("<I", data, 44)[0]
-              print("OS version field:", hex(os_version))
-          PY
-
-
-      # ============================================================
-      # SEARCH KERNEL STRING
-      # ============================================================
-
-      - name: Search kernel strings
-        run: |
-          set -e
-
-          cd "$GITHUB_WORKSPACE"
-
-          echo "========================================"
-          echo "       KERNEL STRING SEARCH"
-          echo "========================================"
-
-          strings -a boot.img \
-            | grep -E \
-            'Linux version|6\.1\.|android14|g0c3d559bcd85|clang|LLVM|Xiaomi|xiaomi|uke' \
-            | head -200 \
-            || true
-
-
-      # ============================================================
-      # EXTRACT POSSIBLE KERNEL
-      # ============================================================
-
-      - name: Extract kernel payload
-        run: |
-          set -e
-
-          cd "$GITHUB_WORKSPACE"
 
           mkdir -p analysis
 
           echo "========================================"
-          echo "       SEARCH KERNEL PAYLOAD"
+          echo "       PAD 7 STOCK BOOT ANALYSIS"
           echo "========================================"
 
-          binwalk boot.img || true
+          echo ""
+          echo "=== FILE ==="
+          file boot.img
 
           echo ""
-          echo "Searching for compressed kernel signatures..."
+          echo "=== SIZE ==="
+          ls -lh boot.img
 
-          binwalk -R $'\x1f\x8b\x08' boot.img || true
-          binwalk -R $'\x28\xb5\x2f\xfd' boot.img || true
-          binwalk -R $'\x02\x21\x4c\x18' boot.img || true
+          echo ""
+          echo "=== HEADER ==="
+          xxd -l 256 boot.img
+
+          echo ""
+          echo "=== KERNEL STRINGS ==="
+
+          strings -a boot.img |
+            grep -Ei \
+            'Linux version|6\.1\.138|android14|g0c3d559bcd85|ab14529422|clang|LLVM|Xiaomi|xiaomi|uke|kallsyms|BTF' \
+            | head -300 \
+            | tee analysis/kernel-strings.txt || true
+
+          echo ""
+          echo "=== ALL VERSION STRINGS ==="
+
+          strings -a boot.img |
+            grep -Ei 'Linux version|6\.1\.' |
+            head -100 |
+            tee analysis/version.txt || true
+
+          echo ""
+          echo "=== KALLSYMS ==="
+
+          strings -a boot.img |
+            grep -Ei 'kallsyms|kallsyms_lookup_name|kallsyms_on_each_symbol' |
+            head -200 |
+            tee analysis/kallsyms.txt || true
+
+          echo ""
+          echo "=== BTF ==="
+
+          strings -a boot.img |
+            grep -Ei 'BTF|BTF_MAGIC|__BTF' |
+            head -200 |
+            tee analysis/btf.txt || true
+
+          echo ""
+          echo "=== BINWALK ==="
+
+          binwalk boot.img |
+            tee analysis/binwalk.txt || true
 
 
-      # ============================================================
-      # KERNEL BINARY STRING REPORT
-      # ============================================================
-
-      - name: Generate kernel report
+      - name: Create final report
         run: |
           set -e
 
-          cd "$GITHUB_WORKSPACE"
-
-          echo "========================================"
-          echo "       KERNEL REPORT"
-          echo "========================================"
-
           {
-            echo "STOCK BOOT IMAGE"
-            echo "================"
+            echo "========================================"
+            echo "PAD 7 STOCK BOOT.IMG REPORT"
+            echo "========================================"
             echo ""
 
-            echo "File:"
-            ls -lh boot.img
-
-            echo ""
             echo "SHA256:"
             sha256sum boot.img
 
             echo ""
-            echo "Kernel strings:"
-            strings -a boot.img \
-              | grep -E \
-              'Linux version|6\.1\.|android14|g0c3d559bcd85|clang|LLVM|Xiaomi|xiaomi|uke' \
-              | head -200 \
-              || true
+            echo "FILE:"
+            file boot.img
 
             echo ""
-            echo "Potential symbols:"
-            strings -a boot.img \
-              | grep -E \
-              'kallsyms|CONFIG_|BTF|VMLINUX|__VMLINUX_SYMBOL' \
-              | head -200 \
-              || true
+            echo "SIZE:"
+            ls -lh boot.img
 
-          } | tee analysis/kernel-report.txt
+            echo ""
+            echo "=== VERSION ==="
+            cat analysis/version.txt || true
 
+            echo ""
+            echo "=== KERNEL STRINGS ==="
+            cat analysis/kernel-strings.txt || true
 
-      # ============================================================
-      # SEARCH KALLSYMS / BTF
-      # ============================================================
-
-      - name: Check kallsyms and BTF
-        run: |
-          set -e
-
-          cd "$GITHUB_WORKSPACE"
-
-          echo "========================================"
-          echo "       KALLSYMS / BTF CHECK"
-          echo "========================================"
-
-          echo ""
-          echo "kallsyms strings:"
-          strings -a boot.img \
-            | grep -Ei 'kallsyms|kallsyms_lookup_name|kallsyms_on_each_symbol' \
-            | head -100 \
-            || true
-
-          echo ""
-          echo "BTF strings:"
-          strings -a boot.img \
-            | grep -Ei 'BTF|BTF_MAGIC|__BTF' \
-            | head -100 \
-            || true
-
-          {
+            echo ""
             echo "=== KALLSYMS ==="
-            strings -a boot.img \
-              | grep -Ei 'kallsyms|kallsyms_lookup_name|kallsyms_on_each_symbol' \
-              || true
+            cat analysis/kallsyms.txt || true
 
             echo ""
             echo "=== BTF ==="
-            strings -a boot.img \
-              | grep -Ei 'BTF|BTF_MAGIC|__BTF' \
-              || true
-          } > analysis/symbol-report.txt
+            cat analysis/btf.txt || true
+
+            echo ""
+            echo "=== BINWALK ==="
+            cat analysis/binwalk.txt || true
+
+          } | tee analysis/FINAL-REPORT.txt
 
 
-      # ============================================================
-      # FINAL REPORT
-      # ============================================================
-
-      - name: Final analysis
-        run: |
-          set -e
-
-          cd "$GITHUB_WORKSPACE"
-
-          echo ""
-          echo "========================================"
-          echo "       ANALYSIS COMPLETE"
-          echo "========================================"
-
-          echo ""
-          echo "Reports:"
-          find analysis -type f -maxdepth 2 -print
-
-          echo ""
-          echo "Kernel report:"
-          cat analysis/kernel-report.txt
-
-          echo ""
-          echo "Symbol report:"
-          cat analysis/symbol-report.txt
-
-
-      # ============================================================
-      # UPLOAD REPORT
-      # ============================================================
-
-      - name: Upload analysis
+      - name: Upload report
         uses: actions/upload-artifact@v4
         with:
-          name: boot-img-analysis
-          path: |
-            analysis/
+          name: pad7-stock-boot-analysis
+          path: analysis/
