@@ -9,151 +9,419 @@ jobs:
 
     steps:
 
+      # ============================================================
+      # DOWNLOAD STOCK BOOT.IMG
+      # ============================================================
+
       - name: Download stock boot.img
         run: |
           set -e
 
+          echo "========================================"
+          echo "       DOWNLOAD STOCK BOOT.IMG"
+          echo "========================================"
+
           wget -O boot.img \
             https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img
 
+          echo ""
           echo "Downloaded:"
           ls -lh boot.img
 
+          echo ""
           echo "SHA256:"
           sha256sum boot.img
 
-          echo "Expected:"
+          echo ""
+          echo "Expected SHA256:"
           echo "22f5e87ea6764e22bf191182d9dcffb0f423af53853e0f70dc0c278c94cb129a"
+
+          echo ""
+          echo "Checking SHA256..."
 
           test "$(sha256sum boot.img | awk '{print $1}')" = \
             "22f5e87ea6764e22bf191182d9dcffb0f423af53853e0f70dc0c278c94cb129a"
 
+          echo ""
           echo "SHA256 OK"
 
 
-      - name: Install tools
+      # ============================================================
+      # INSTALL ANALYSIS TOOLS
+      # ============================================================
+
+      - name: Install analysis tools
         run: |
+          set -e
+
+          echo "========================================"
+          echo "       INSTALL ANALYSIS TOOLS"
+          echo "========================================"
+
           sudo apt-get update
+
           sudo apt-get install -y \
             file \
+            binutils \
             binwalk \
             xxd \
-            strings \
             cpio \
             gzip \
             lz4 \
             xz-utils \
             zstd
 
+          echo ""
+          echo "TOOLS INSTALLED"
 
-      - name: Analyze boot.img
+
+      # ============================================================
+      # CREATE ANALYSIS DIRECTORY
+      # ============================================================
+
+      - name: Prepare analysis
         run: |
           set -e
 
           mkdir -p analysis
 
           echo "========================================"
-          echo "       PAD 7 STOCK BOOT ANALYSIS"
+          echo "       PREPARE ANALYSIS"
+          echo "========================================"
+
+          pwd
+          ls -lh boot.img
+
+          echo ""
+          echo "Analysis directory:"
+          ls -ld analysis
+
+
+      # ============================================================
+      # FILE IDENTIFICATION
+      # ============================================================
+
+      - name: Identify boot.img
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "       FILE IDENTIFICATION"
           echo "========================================"
 
           echo ""
           echo "=== FILE ==="
-          file boot.img
+          file boot.img | tee analysis/file.txt
 
           echo ""
           echo "=== SIZE ==="
-          ls -lh boot.img
+          ls -lh boot.img | tee analysis/size.txt
 
           echo ""
-          echo "=== HEADER ==="
-          xxd -l 256 boot.img
+          echo "=== SHA256 ==="
+          sha256sum boot.img | tee analysis/sha256.txt
 
           echo ""
-          echo "=== KERNEL STRINGS ==="
+          echo "=== FIRST 256 BYTES ==="
+          xxd -l 256 boot.img | tee analysis/header-hex.txt
+
+
+      # ============================================================
+      # ANDROID BOOT HEADER
+      # ============================================================
+
+      - name: Analyze Android boot header
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "       ANDROID BOOT HEADER"
+          echo "========================================"
+
+          python3 - <<'PY' | tee analysis/boot-header.txt
+          import struct
+
+          with open("boot.img", "rb") as f:
+              data = f.read(4096)
+
+          print("Magic:", data[0:8])
+
+          if data[0:8] != b"ANDROID!":
+              print("WARNING: ANDROID! magic not found")
+              raise SystemExit(0)
+
+          kernel_size = struct.unpack_from("<I", data, 8)[0]
+          ramdisk_size = struct.unpack_from("<I", data, 16)[0]
+          second_size = struct.unpack_from("<I", data, 24)[0]
+          header_version = struct.unpack_from("<I", data, 40)[0]
+
+          print("Kernel size :", kernel_size)
+          print("Ramdisk size:", ramdisk_size)
+          print("Second size :", second_size)
+          print("Header ver. :", header_version)
+
+          if header_version >= 3:
+              os_version = struct.unpack_from("<I", data, 44)[0]
+              print("OS version field:", hex(os_version))
+          PY
+
+
+      # ============================================================
+      # SEARCH KERNEL VERSION
+      # ============================================================
+
+      - name: Search kernel version
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "       KERNEL VERSION SEARCH"
+          echo "========================================"
 
           strings -a boot.img |
             grep -Ei \
-            'Linux version|6\.1\.138|android14|g0c3d559bcd85|ab14529422|clang|LLVM|Xiaomi|xiaomi|uke|kallsyms|BTF' \
+            'Linux version|6\.1\.|android14|g0c3d559bcd85|ab14529422|clang|LLVM' \
             | head -300 \
-            | tee analysis/kernel-strings.txt || true
+            | tee analysis/kernel-version.txt || true
 
-          echo ""
-          echo "=== ALL VERSION STRINGS ==="
 
-          strings -a boot.img |
-            grep -Ei 'Linux version|6\.1\.' |
-            head -100 |
-            tee analysis/version.txt || true
+      # ============================================================
+      # SEARCH XIAOMI / DEVICE STRINGS
+      # ============================================================
 
-          echo ""
-          echo "=== KALLSYMS ==="
+      - name: Search Xiaomi strings
+        run: |
+          set -e
 
-          strings -a boot.img |
-            grep -Ei 'kallsyms|kallsyms_lookup_name|kallsyms_on_each_symbol' |
-            head -200 |
-            tee analysis/kallsyms.txt || true
-
-          echo ""
-          echo "=== BTF ==="
+          echo "========================================"
+          echo "       XIAOMI / DEVICE STRINGS"
+          echo "========================================"
 
           strings -a boot.img |
-            grep -Ei 'BTF|BTF_MAGIC|__BTF' |
-            head -200 |
-            tee analysis/btf.txt || true
+            grep -Ei \
+            'Xiaomi|xiaomi|uke|Pad 7|pad7|Qualcomm|SM7675' \
+            | head -500 \
+            | tee analysis/xiaomi-device.txt || true
 
-          echo ""
-          echo "=== BINWALK ==="
+
+      # ============================================================
+      # SEARCH KALLSYMS
+      # ============================================================
+
+      - name: Check kallsyms
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "       KALLSYMS CHECK"
+          echo "========================================"
+
+          strings -a boot.img |
+            grep -Ei \
+            'kallsyms|kallsyms_lookup_name|kallsyms_on_each_symbol' \
+            | head -300 \
+            | tee analysis/kallsyms.txt || true
+
+
+      # ============================================================
+      # SEARCH BTF
+      # ============================================================
+
+      - name: Check BTF
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "       BTF CHECK"
+          echo "========================================"
+
+          strings -a boot.img |
+            grep -Ei \
+            'BTF|BTF_MAGIC|__BTF' \
+            | head -300 \
+            | tee analysis/btf.txt || true
+
+
+      # ============================================================
+      # SEARCH CONFIG
+      # ============================================================
+
+      - name: Search kernel config
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "       KERNEL CONFIG SEARCH"
+          echo "========================================"
+
+          strings -a boot.img |
+            grep -E \
+            '^CONFIG_[A-Z0-9_]+=' \
+            | head -1000 \
+            | tee analysis/config.txt || true
+
+
+      # ============================================================
+      # SEARCH IMPORTANT SYMBOLS
+      # ============================================================
+
+      - name: Search kernel symbols
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "       IMPORTANT SYMBOL SEARCH"
+          echo "========================================"
+
+          strings -a boot.img |
+            grep -Ei \
+            'securityfs|proc_create|security_inode|avc_denied|selinux|selinuxfs|vfs_read|vfs_write|do_execve|execve|mount|dentry|inode' \
+            | head -1000 \
+            | tee analysis/important-symbols.txt || true
+
+
+      # ============================================================
+      # BINWALK
+      # ============================================================
+
+      - name: Analyze boot.img with binwalk
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "       BINWALK"
+          echo "========================================"
 
           binwalk boot.img |
             tee analysis/binwalk.txt || true
 
 
+      # ============================================================
+      # SEARCH COMPRESSED PAYLOADS
+      # ============================================================
+
+      - name: Search compressed payloads
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "       COMPRESSED PAYLOAD SEARCH"
+          echo "========================================"
+
+          echo ""
+          echo "=== GZIP ==="
+          binwalk -R $'\x1f\x8b\x08' boot.img || true
+
+          echo ""
+          echo "=== ZSTD ==="
+          binwalk -R $'\x28\xb5\x2f\xfd' boot.img || true
+
+          echo ""
+          echo "=== LZ4 ==="
+          binwalk -R $'\x02\x21\x4c\x18' boot.img || true
+
+
+      # ============================================================
+      # FINAL REPORT
+      # ============================================================
+
       - name: Create final report
         run: |
           set -e
 
+          echo "========================================"
+          echo "       CREATE FINAL REPORT"
+          echo "========================================"
+
           {
             echo "========================================"
-            echo "PAD 7 STOCK BOOT.IMG REPORT"
+            echo "XIAOMI PAD 7 STOCK BOOT.IMG"
+            echo "ANALYSIS REPORT"
             echo "========================================"
             echo ""
 
-            echo "SHA256:"
-            sha256sum boot.img
-
+            echo "=== FILE ==="
+            cat analysis/file.txt
             echo ""
-            echo "FILE:"
-            file boot.img
 
+            echo "=== SIZE ==="
+            cat analysis/size.txt
             echo ""
-            echo "SIZE:"
-            ls -lh boot.img
 
+            echo "=== SHA256 ==="
+            cat analysis/sha256.txt
             echo ""
-            echo "=== VERSION ==="
-            cat analysis/version.txt || true
 
+            echo "=== BOOT HEADER ==="
+            cat analysis/boot-header.txt
             echo ""
-            echo "=== KERNEL STRINGS ==="
-            cat analysis/kernel-strings.txt || true
 
+            echo "=== KERNEL VERSION ==="
+            cat analysis/kernel-version.txt
             echo ""
+
+            echo "=== XIAOMI / DEVICE ==="
+            cat analysis/xiaomi-device.txt
+            echo ""
+
             echo "=== KALLSYMS ==="
-            cat analysis/kallsyms.txt || true
-
+            cat analysis/kallsyms.txt
             echo ""
+
             echo "=== BTF ==="
-            cat analysis/btf.txt || true
-
+            cat analysis/btf.txt
             echo ""
+
+            echo "=== CONFIG ==="
+            cat analysis/config.txt
+            echo ""
+
+            echo "=== IMPORTANT SYMBOLS ==="
+            cat analysis/important-symbols.txt
+            echo ""
+
             echo "=== BINWALK ==="
-            cat analysis/binwalk.txt || true
+            cat analysis/binwalk.txt
+            echo ""
+
+            echo "========================================"
+            echo "END OF REPORT"
+            echo "========================================"
 
           } | tee analysis/FINAL-REPORT.txt
 
 
-      - name: Upload report
+      # ============================================================
+      # SHOW FINAL RESULT
+      # ============================================================
+
+      - name: Show final result
+        run: |
+          set -e
+
+          echo ""
+          echo "========================================"
+          echo "       ANALYSIS COMPLETE"
+          echo "========================================"
+
+          echo ""
+          echo "Generated files:"
+          find analysis -type f -maxdepth 1 -print | sort
+
+          echo ""
+          echo "========================================"
+          echo "       FINAL REPORT"
+          echo "========================================"
+
+          cat analysis/FINAL-REPORT.txt
+
+
+      # ============================================================
+      # UPLOAD REPORT
+      # ============================================================
+
+      - name: Upload analysis report
         uses: actions/upload-artifact@v4
         with:
           name: pad7-stock-boot-analysis
-          path: analysis/
+          path: analysis
