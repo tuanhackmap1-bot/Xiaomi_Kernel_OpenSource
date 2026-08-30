@@ -1,4 +1,4 @@
-name: Get Official Xiaomi UKE
+name: Check Official UKE Version
 
 on:
   workflow_dispatch:
@@ -8,20 +8,28 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Get official UKE HEAD
+      - name: Checkout official UKE
+        uses: actions/checkout@v4
+        with:
+          repository: MiCode/Xiaomi_Kernel_OpenSource
+          ref: uke-v-oss
+          fetch-depth: 1
+
+      - name: Check kernel version
         run: |
           set -e
-
-          URL="https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git"
 
           echo "========================================"
           echo "OFFICIAL XIAOMI UKE"
           echo "========================================"
 
-          git ls-remote "$URL" refs/heads/uke-v-oss
+          echo "Commit:"
+          git rev-parse HEAD
 
           echo ""
-          echo "Base tag:"
-          git ls-remote --tags "$URL" \
-            | grep 'LA.VENDOR.14.3.0.r1-14500-r1.0.r1_00042.0' \
-            || true
+          echo "Kernel version:"
+          make -s kernelversion
+
+          echo ""
+          echo "Makefile:"
+          grep -E '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' Makefile
