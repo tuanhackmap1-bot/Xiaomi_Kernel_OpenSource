@@ -199,7 +199,32 @@ jobs:
           clang --version
           ld.lld --version
 
-      
+      - name: Check missing HWID source
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "CHECK HWID SOURCE"
+          echo "========================================"
+
+          echo "Git submodules:"
+          git submodule status || true
+
+          echo ""
+          echo "Git LFS:"
+          git lfs ls-files 2>/dev/null | grep -i hwid || true
+
+          echo ""
+          echo "HWID references:"
+          git grep -n -i "drivers/misc/hwid" || true
+
+          echo ""
+          echo "HWID directory:"
+          if [ -d drivers/misc/hwid ]; then
+            find drivers/misc/hwid -maxdepth 2 -type f -print
+          else
+            echo "MISSING: drivers/misc/hwid"
+          fi
 
       - name: Load stock Pad 7 config
         run: |
