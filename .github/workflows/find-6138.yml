@@ -1,0 +1,64 @@
+name: Find 6.1.138 Source
+
+on:
+  workflow_dispatch:
+
+jobs:
+  find:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout all history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Find kernel versions
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "CURRENT REPOSITORY"
+          echo "========================================"
+
+          echo "Commit:"
+          git rev-parse HEAD
+
+          echo ""
+          echo "Branch:"
+          git branch --show-current || true
+
+          echo ""
+          echo "Current kernel:"
+          make -s kernelversion
+
+          echo ""
+          echo "========================================"
+          echo "SEARCH 6.1.138"
+          echo "========================================"
+
+          echo ""
+          echo "Tags:"
+          git tag -l '*6.1.138*' || true
+
+          echo ""
+          echo "Branches:"
+          git branch -a | grep -E '6\.1\.138|uke' || true
+
+          echo ""
+          echo "Commits containing 6.1.138:"
+          git log --all --oneline --decorate --grep='6\.1\.138' \
+            | head -100 || true
+
+          echo ""
+          echo "Makefile history:"
+          git log --all -p -- Makefile \
+            | grep -E \
+            '6\.1\.138|PATCHLEVEL|SUBLEVEL' \
+            | head -200 || true
+
+          echo ""
+          echo "========================================"
+          echo "DONE"
+          echo "========================================"
