@@ -1,0 +1,27 @@
+name: Get Official Xiaomi UKE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Get official UKE HEAD
+        run: |
+          set -e
+
+          URL="https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git"
+
+          echo "========================================"
+          echo "OFFICIAL XIAOMI UKE"
+          echo "========================================"
+
+          git ls-remote "$URL" refs/heads/uke-v-oss
+
+          echo ""
+          echo "Base tag:"
+          git ls-remote --tags "$URL" \
+            | grep 'LA.VENDOR.14.3.0.r1-14500-r1.0.r1_00042.0' \
+            || true
