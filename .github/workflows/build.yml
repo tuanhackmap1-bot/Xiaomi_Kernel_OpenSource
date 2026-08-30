@@ -1,4 +1,4 @@
-name: Step 6 - Build Stock Kernel 6.1.138
+name: Step 6 - Find and Build Stock Kernel 6.1.138
 
 on:
   workflow_dispatch:
@@ -11,35 +11,40 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout Xiaomi kernel source
+      - name: Checkout official Xiaomi UKE source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          repository: MiCode/Xiaomi_Kernel_OpenSource
+          ref: uke-v-oss
+          fetch-depth: 0
 
       - name: Show source information
         run: |
           set -e
 
           echo "========================================"
-          echo "XIAOMI KERNEL SOURCE"
+          echo "OFFICIAL XIAOMI UKE SOURCE"
           echo "========================================"
-
-          echo "Branch:"
-          git branch --show-current || true
 
           echo ""
           echo "Commit:"
           git rev-parse HEAD
 
           echo ""
-          echo "Kernel Makefile version:"
-          grep -E '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' Makefile
+          echo "Branch:"
+          git branch --show-current || true
 
           echo ""
-          echo "make kernelversion:"
+          echo "Kernel version:"
           make -s kernelversion
 
-            - name: Find kernel 6.1.138 source
+          echo ""
+          echo "Makefile:"
+          grep -E \
+            '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' \
+            Makefile
+
+      - name: Find kernel 6.1.138 source
         run: |
           set -e
 
@@ -48,7 +53,7 @@ jobs:
           echo "========================================"
 
           echo ""
-          echo "Current source:"
+          echo "Current commit:"
           git rev-parse HEAD
 
           echo ""
@@ -56,21 +61,19 @@ jobs:
           make -s kernelversion
 
           echo ""
-          echo "Branches:"
-          git branch -a
+          echo "Remote branches:"
+          git ls-remote --heads origin
 
           echo ""
-          echo "Commits containing 6.1.138:"
-          git log \
-            --all \
-            --oneline \
-            --grep='6.1.138' \
-            -i \
-            -20 \
-            || true
+          echo "Remote tags containing 6.1.138:"
+          git ls-remote --tags origin | grep '6.1.138' || true
 
           echo ""
-          echo "Checking Makefile history..."
+          echo "Remote refs containing 6.1.138:"
+          git ls-remote origin | grep '6.1.138' || true
+
+          echo ""
+          echo "Searching local Makefile history..."
 
           git log \
             --all \
@@ -80,7 +83,12 @@ jobs:
             -20 \
             || true
 
-      - name: Check missing HWID source
+          echo ""
+          echo "========================================"
+          echo "FIND COMPLETE"
+          echo "========================================"
+
+      - name: Check HWID source
         run: |
           set -e
 
@@ -90,15 +98,20 @@ jobs:
 
           echo ""
           echo "HWID directory:"
+
           if [ -d "drivers/misc/hwid" ]; then
             echo "FOUND: drivers/misc/hwid"
-            find drivers/misc/hwid -maxdepth 2 -type f | sort
+            find drivers/misc/hwid \
+              -maxdepth 2 \
+              -type f \
+              | sort
           else
             echo "MISSING: drivers/misc/hwid"
           fi
 
           echo ""
           echo "HWID references:"
+
           grep -R \
             -n \
             -E 'drivers/misc/hwid|CONFIG_HWID' \
@@ -107,51 +120,36 @@ jobs:
             2>/dev/null \
             || true
 
-      - name: Disable unavailable HWID dependency
+      - name: Stop if source is not 6.1.138
         run: |
           set -e
 
-          echo "========================================"
-          echo "HANDLE MISSING HWID"
-          echo "========================================"
+          VERSION="$(make -s kernelversion)"
 
-          if [ ! -d "drivers/misc/hwid" ]; then
-            echo "HWID source is unavailable."
-            echo "Removing only the broken Kconfig reference."
+          echo ""
+          echo "Detected kernel version: $VERSION"
 
-            cp drivers/misc/Kconfig \
-              drivers/misc/Kconfig.before-hwid-fix
-
-            sed -i \
-              '/source "drivers\/misc\/hwid\/Kconfig"/d' \
-              drivers/misc/Kconfig
-
+          if [ "$VERSION" != "6.1.138" ]; then
             echo ""
-            echo "Remaining HWID references:"
-            grep -R \
-              -n \
-              -E 'drivers/misc/hwid|CONFIG_HWID' \
-              drivers/misc \
-              xiaomi_sm8650_common.bzl \
-              2>/dev/null \
-              || true
-
+            echo "========================================"
+            echo "SOURCE IS NOT 6.1.138"
+            echo "========================================"
             echo ""
-            echo "Kconfig reference removed:"
-            if grep -n \
-              'drivers/misc/hwid/Kconfig' \
-              drivers/misc/Kconfig; then
-              echo "ERROR: HWID Kconfig reference still exists."
-              exit 1
-            else
-              echo "OK"
-            fi
-          else
-            echo "HWID source exists."
-            echo "No Kconfig modification required."
+            echo "The current uke-v-oss branch is:"
+            echo "$VERSION"
+            echo ""
+            echo "No build will be attempted."
+            echo ""
+            echo "This run was only used to locate"
+            echo "the correct 6.1.138 source."
+            exit 1
           fi
 
+          echo ""
+          echo "Kernel version OK: 6.1.138"
+
       - name: Install build dependencies
+        if: success()
         run: |
           set -e
 
@@ -179,6 +177,7 @@ jobs:
             zstd
 
       - name: Download stock boot.img
+        if: success()
         run: |
           set -e
 
@@ -186,6 +185,7 @@ jobs:
             -O boot.img \
             "https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img"
 
+          echo ""
           echo "boot.img:"
           stat -c%s boot.img
 
@@ -194,6 +194,7 @@ jobs:
           sha256sum boot.img
 
       - name: Extract stock kernel
+        if: success()
         run: |
           set -e
 
@@ -216,6 +217,7 @@ jobs:
           file stock/kernel
 
       - name: Extract stock config
+        if: success()
         run: |
           set -e
 
@@ -249,6 +251,7 @@ jobs:
           echo "Stock config successfully extracted."
 
       - name: Save stock config
+        if: success()
         run: |
           set -e
 
@@ -261,6 +264,7 @@ jobs:
           wc -l arch/arm64/configs/stock_pad7_defconfig
 
       - name: Prepare compiler
+        if: success()
         run: |
           set -e
 
@@ -272,12 +276,14 @@ jobs:
           ld.lld --version
 
       - name: Clean previous build
+        if: success()
         run: |
           set -e
 
           make mrproper
 
       - name: Load stock Pad 7 config
+        if: success()
         run: |
           set -e
 
@@ -295,12 +301,14 @@ jobs:
 
           echo ""
           echo "Final config:"
+
           grep -E \
             '^CONFIG_(IKCONFIG|KALLSYMS|KALLSYMS_ALL|MODULES|BPF|BPF_SYSCALL|SECURITY|SECURITYFS|SECURITY_SELINUX)' \
             out/.config \
             || true
 
       - name: Verify final kernel config
+        if: success()
         run: |
           set -e
 
@@ -324,6 +332,7 @@ jobs:
           grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
 
       - name: Build kernel
+        if: success()
         run: |
           set -e
 
@@ -347,6 +356,7 @@ jobs:
             Image
 
       - name: Check build output
+        if: success()
         run: |
           set -e
 
@@ -372,6 +382,7 @@ jobs:
           file out/arch/arm64/boot/Image
 
       - name: Create build report
+        if: success()
         run: |
           set -e
 
@@ -413,6 +424,7 @@ jobs:
           } | tee report/FINAL-REPORT.txt
 
       - name: Upload build artifacts
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: pad7-step6-kernel-build
