@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: MiCode/Xiaomi_Kernel_OpenSource
-          ref: uke-v-oss
+          ref: 5712080a4b0c0b1a879e6d145c601c649ddaddfd
           fetch-depth: 1
 
       - name: Show source information
