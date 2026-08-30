@@ -1,18 +1,59 @@
-name: Check 6138
+name: Find Google GKI 6.1.138
 
 on:
   workflow_dispatch:
 
 jobs:
-  check:
+  find:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Check branches
+      - name: Get Google GKI 6.1.138
         run: |
-          git ls-remote --heads https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource.git
+          set -e
 
-      - name: Check 6138
-        run: |
-          git ls-remote --heads https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource.git | grep '138' || true
-          git ls-remote --tags https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource.git | grep '138' || true
+          echo "========================================"
+          echo "GOOGLE GKI 6.1.138"
+          echo "========================================"
+
+          git clone \
+            --filter=blob:none \
+            --no-checkout \
+            https://android.googlesource.com/kernel/common \
+            google-kernel
+
+          cd google-kernel
+
+          echo ""
+          echo "Checking tag..."
+
+          git fetch \
+            --depth=1 \
+            origin \
+            refs/tags/android14-6.1.138_r00
+
+          git checkout \
+            android14-6.1.138_r00
+
+          echo ""
+          echo "========================================"
+          echo "COMMIT"
+          echo "========================================"
+
+          git rev-parse HEAD
+
+          echo ""
+          echo "========================================"
+          echo "KERNEL VERSION"
+          echo "========================================"
+
+          make -s kernelversion
+
+          echo ""
+          echo "========================================"
+          echo "MAKEFILE"
+          echo "========================================"
+
+          grep -E \
+            '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' \
+            Makefile
