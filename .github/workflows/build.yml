@@ -11,36 +11,11 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout official Xiaomi UKE
+      - name: Checkout Xiaomi kernel source
         uses: actions/checkout@v4
         with:
-          repository: MiCode/Xiaomi_Kernel_OpenSource
-          ref: 5712080a4b0c0b1a879e6d145c601c649ddaddfd
           fetch-depth: 1
-          
-      - name: Inspect HWID reference
-        run: |
-          set -e
 
-          echo "COMMIT:"
-          git rev-parse HEAD
-
-          echo ""
-          echo "Kconfig line 525-540:"
-          nl -ba drivers/misc/Kconfig | sed -n '525,540p'
-
-          echo ""
-          echo "Search HWID:"
-          grep -Rni "hwid" drivers/misc/Kconfig drivers/misc/Makefile || true
-
-          echo ""
-          echo "Check HWID directory:"
-          if [ -d drivers/misc/hwid ]; then
-            echo "drivers/misc/hwid EXISTS"
-            find drivers/misc/hwid -maxdepth 2 -type f -print
-          else
-            echo "drivers/misc/hwid DOES NOT EXIST"
-          fi
       - name: Show source information
         run: |
           set -e
@@ -64,20 +39,96 @@ jobs:
           echo "make kernelversion:"
           make -s kernelversion
 
-      - name: Verify Xiaomi source
+      - name: Verify kernel version
         run: |
           set -e
 
           VERSION="$(make -s kernelversion)"
 
-          echo "Xiaomi source version: $VERSION"
+          echo "Detected kernel version: $VERSION"
 
-          if [ "$VERSION" != "6.1.68" ]; then
-            echo "Unexpected Xiaomi source version."
+          if [ "$VERSION" != "6.1.138" ]; then
+            echo ""
+            echo "ERROR: This source is NOT kernel 6.1.138."
+            echo "Detected: $VERSION"
+            echo "Required: 6.1.138"
+            echo ""
+            echo "BUILD STOPPED."
             exit 1
           fi
 
-          echo "Xiaomi UKE source confirmed."
+          echo "Kernel version OK: 6.1.138"
+
+      - name: Check missing HWID source
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "CHECK HWID SOURCE"
+          echo "========================================"
+
+          echo ""
+          echo "HWID directory:"
+          if [ -d "drivers/misc/hwid" ]; then
+            echo "FOUND: drivers/misc/hwid"
+            find drivers/misc/hwid -maxdepth 2 -type f | sort
+          else
+            echo "MISSING: drivers/misc/hwid"
+          fi
+
+          echo ""
+          echo "HWID references:"
+          grep -R \
+            -n \
+            -E 'drivers/misc/hwid|CONFIG_HWID' \
+            drivers/misc \
+            xiaomi_sm8650_common.bzl \
+            2>/dev/null \
+            || true
+
+      - name: Disable unavailable HWID dependency
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "HANDLE MISSING HWID"
+          echo "========================================"
+
+          if [ ! -d "drivers/misc/hwid" ]; then
+            echo "HWID source is unavailable."
+            echo "Removing only the broken Kconfig reference."
+
+            cp drivers/misc/Kconfig \
+              drivers/misc/Kconfig.before-hwid-fix
+
+            sed -i \
+              '/source "drivers\/misc\/hwid\/Kconfig"/d' \
+              drivers/misc/Kconfig
+
+            echo ""
+            echo "Remaining HWID references:"
+            grep -R \
+              -n \
+              -E 'drivers/misc/hwid|CONFIG_HWID' \
+              drivers/misc \
+              xiaomi_sm8650_common.bzl \
+              2>/dev/null \
+              || true
+
+            echo ""
+            echo "Kconfig reference removed:"
+            if grep -n \
+              'drivers/misc/hwid/Kconfig' \
+              drivers/misc/Kconfig; then
+              echo "ERROR: HWID Kconfig reference still exists."
+              exit 1
+            else
+              echo "OK"
+            fi
+          else
+            echo "HWID source exists."
+            echo "No Kconfig modification required."
+          fi
 
       - name: Install build dependencies
         run: |
@@ -199,32 +250,11 @@ jobs:
           clang --version
           ld.lld --version
 
-      - name: Check missing HWID source
+      - name: Clean previous build
         run: |
           set -e
 
-          echo "========================================"
-          echo "CHECK HWID SOURCE"
-          echo "========================================"
-
-          echo "Git submodules:"
-          git submodule status || true
-
-          echo ""
-          echo "Git LFS:"
-          git lfs ls-files 2>/dev/null | grep -i hwid || true
-
-          echo ""
-          echo "HWID references:"
-          git grep -n -i "drivers/misc/hwid" || true
-
-          echo ""
-          echo "HWID directory:"
-          if [ -d drivers/misc/hwid ]; then
-            find drivers/misc/hwid -maxdepth 2 -type f -print
-          else
-            echo "MISSING: drivers/misc/hwid"
-          fi
+          make mrproper
 
       - name: Load stock Pad 7 config
         run: |
