@@ -256,27 +256,7 @@ jobs:
           fi
 
           echo "HWID Kconfig check passed."
-      - name: Disable GKI KMI trimming for local build
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "DISABLE GKI KMI TRIMMING"
-          echo "========================================"
-
-          if grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y' out/.config 2>/dev/null; then
-            echo "Disabling CONFIG_TRIM_UNUSED_KSYMS"
-            sed -i 's/^CONFIG_TRIM_UNUSED_KSYMS=y/# CONFIG_TRIM_UNUSED_KSYMS is not set/' out/.config
-          fi
-
-          if grep -q '^CONFIG_UNUSED_KSYMS_WHITELIST=' out/.config 2>/dev/null; then
-            echo "Removing CONFIG_UNUSED_KSYMS_WHITELIST"
-            sed -i '/^CONFIG_UNUSED_KSYMS_WHITELIST=/d' out/.config
-          fi
-
-          echo ""
-          echo "KMI trimming settings:"
-          grep -E '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)' out/.config || true    
+         
       - name: Load stock Pad 7 config
         run: |
           set -e
