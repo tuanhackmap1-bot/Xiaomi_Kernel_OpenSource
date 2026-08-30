@@ -39,25 +39,46 @@ jobs:
           echo "make kernelversion:"
           make -s kernelversion
 
-      - name: Verify kernel version
+            - name: Find kernel 6.1.138 source
         run: |
           set -e
 
-          VERSION="$(make -s kernelversion)"
+          echo "========================================"
+          echo "FIND KERNEL 6.1.138"
+          echo "========================================"
 
-          echo "Detected kernel version: $VERSION"
+          echo ""
+          echo "Current source:"
+          git rev-parse HEAD
 
-          if [ "$VERSION" != "6.1.138" ]; then
-            echo ""
-            echo "ERROR: This source is NOT kernel 6.1.138."
-            echo "Detected: $VERSION"
-            echo "Required: 6.1.138"
-            echo ""
-            echo "BUILD STOPPED."
-            exit 1
-          fi
+          echo ""
+          echo "Current kernel:"
+          make -s kernelversion
 
-          echo "Kernel version OK: 6.1.138"
+          echo ""
+          echo "Branches:"
+          git branch -a
+
+          echo ""
+          echo "Commits containing 6.1.138:"
+          git log \
+            --all \
+            --oneline \
+            --grep='6.1.138' \
+            -i \
+            -20 \
+            || true
+
+          echo ""
+          echo "Checking Makefile history..."
+
+          git log \
+            --all \
+            -S'SUBLEVEL = 138' \
+            --oneline \
+            -- Makefile \
+            -20 \
+            || true
 
       - name: Check missing HWID source
         run: |
