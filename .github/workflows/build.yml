@@ -17,7 +17,74 @@ jobs:
       # ============================================================
       # CHECKOUT
       # ============================================================
+      - name: PREPARE UKE KERNEL FOR STOCK 6.1.138
+        run: |
+          set -e
 
+          cd "$GITHUB_WORKSPACE"
+
+          echo "========================================"
+          echo " PREPARE UKE KERNEL"
+          echo " STOCK: 6.1.138"
+          echo " BASE : 6.1.68"
+          echo "========================================"
+
+          echo ""
+          echo "=== SOURCE ==="
+          git log -1 --oneline
+          make -s kernelversion
+
+          echo ""
+          echo "=== ARCH ==="
+          grep -nE 'CONFIG_ARM64|CONFIG_GKI' \
+            arch/arm64/configs/gki_defconfig \
+            arch/arm64/configs/defconfig \
+            2>/dev/null || true
+
+          echo ""
+          echo "=== FIND UKE / XIAOMI CONFIG ==="
+          grep -RniE 'CONFIG_(XIAOMI|MI_|MSM|QCOM)' \
+            arch/arm64/configs 2>/dev/null \
+            | head -100 || true
+
+          echo ""
+          echo "=== CHECK REQUIRED KERNEL FILES ==="
+          for f in \
+            fs/proc/base.c \
+            fs/namei.c \
+            fs/namespace.c \
+            fs/exec.c \
+            fs/open.c \
+            fs/read_write.c \
+            fs/readdir.c \
+            fs/stat.c \
+            fs/statfs.c \
+            kernel/kallsyms.c \
+            kernel/reboot.c \
+            kernel/sys.c \
+            security/selinux/avc.c \
+            include/linux/mount.h
+          do
+            if [ -f "$f" ]; then
+              echo "OK   $f"
+            else
+              echo "MISS $f"
+            fi
+          done
+
+          echo ""
+          echo "=== CHECK SUSFS PATCH ==="
+
+          if [ -f susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch ]; then
+            echo "SUSFS PATCH FOUND"
+          else
+            echo "SUSFS PATCH NOT FOUND"
+          fi
+
+          echo ""
+          echo "========================================"
+          echo " PREPARATION COMPLETE"
+          echo "========================================"
       
           
       - name: INSPECT KERNEL SOURCE
