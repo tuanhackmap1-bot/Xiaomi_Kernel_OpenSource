@@ -1,4 +1,4 @@
-name: Step 5 - Extract Stock Config
+name: Step 6 - Build Stock Kernel 6.1.138
 
 on:
   workflow_dispatch:
@@ -7,47 +7,123 @@ on:
       - uke-v-oss
 
 jobs:
-  extract:
+  build:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Download stock boot
+      - name: Checkout Xiaomi kernel source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Show source information
         run: |
           set -e
+
+          echo "========================================"
+          echo "XIAOMI KERNEL SOURCE"
+          echo "========================================"
+
+          echo "Branch:"
+          git branch --show-current || true
+
+          echo ""
+          echo "Commit:"
+          git rev-parse HEAD
+
+          echo ""
+          echo "Kernel Makefile version:"
+          grep -E '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' Makefile
+
+          echo ""
+          echo "make kernelversion:"
+          make -s kernelversion
+
+      - name: Verify kernel version
+        run: |
+          set -e
+
+          VERSION="$(make -s kernelversion)"
+
+          echo "Detected kernel version: $VERSION"
+
+          if [ "$VERSION" != "6.1.138" ]; then
+            echo ""
+            echo "ERROR: This source is NOT kernel 6.1.138."
+            echo "Detected: $VERSION"
+            echo "Required: 6.1.138"
+            echo ""
+            echo "BUILD STOPPED."
+            exit 1
+          fi
+
+          echo "Kernel version OK: 6.1.138"
+
+      - name: Install build dependencies
+        run: |
+          set -e
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            git \
+            bc \
+            bison \
+            flex \
+            build-essential \
+            clang \
+            lld \
+            llvm \
+            libssl-dev \
+            libelf-dev \
+            libdw-dev \
+            dwarves \
+            python3 \
+            cpio \
+            rsync \
+            wget \
+            unzip \
+            xz-utils \
+            zstd
+
+      - name: Download stock boot.img
+        run: |
+          set -e
+
           wget -q --show-progress \
             -O boot.img \
             "https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img"
 
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            binutils \
-            python3 \
-            gzip \
-            bzip2 \
-            xz-utils \
-            lz4 \
-            zstd
+          echo "boot.img:"
+          stat -c%s boot.img
+
+          echo ""
+          echo "SHA256:"
+          sha256sum boot.img
 
       - name: Extract stock kernel
         run: |
           set -e
-          mkdir -p analysis
+
+          mkdir -p stock
 
           dd \
             if=boot.img \
-            of=analysis/stock-kernel \
+            of=stock/kernel \
             bs=4096 \
             skip=1 \
-            count=8641 \
+            count=8645 \
             status=progress
 
-          echo "Stock kernel:"
-          stat -c%s analysis/stock-kernel
-          file analysis/stock-kernel
+          echo ""
+          echo "Stock kernel size:"
+          stat -c%s stock/kernel
 
-      - name: Extract IKCONFIG
+          echo ""
+          echo "Stock kernel:"
+          file stock/kernel
+
+      - name: Extract stock config
         run: |
           set -e
 
@@ -57,159 +133,199 @@ jobs:
 
           chmod +x extract-ikconfig
 
-          echo "Trying to extract stock config..."
-
           ./extract-ikconfig \
-            analysis/stock-kernel \
-            > analysis/stock.config \
-            2> analysis/extract-error.txt || true
-
-          echo ""
-          echo "Config size:"
-          stat -c%s analysis/stock.config
-
-          echo ""
-          echo "Config lines:"
-          wc -l analysis/stock.config
-
-          echo ""
-          echo "First 30 lines:"
-          head -30 analysis/stock.config || true
-
-          echo ""
-          echo "Extractor message:"
-          cat analysis/extract-error.txt || true
-
-      - name: Clone Google GKI 6.1.138
-        run: |
-          set -e
-
-          git clone \
-            --depth=1 \
-            --branch android14-6.1.138_r00 \
-            "https://android.googlesource.com/kernel/common.git" \
-            google-kernel
-
-          cd google-kernel
-
-          echo "Google commit:"
-          git rev-parse HEAD
-
-          echo "Google kernel:"
-          make -s kernelversion
-
-      - name: Save Google config
-        run: |
-          set -e
-
-          cp \
-            google-kernel/arch/arm64/configs/gki_defconfig \
-            analysis/google-gki_defconfig
-
-      - name: Normalize configs
-        run: |
-          set -e
-
-          if [ -s analysis/stock.config ]; then
-            grep '^CONFIG_' \
-              analysis/stock.config \
-              | sort \
-              > analysis/stock.config.sorted
-          else
-            touch analysis/stock.config.sorted
-          fi
-
-          grep '^CONFIG_' \
-            analysis/google-gki_defconfig \
-            | sort \
-            > analysis/google-gki.config.sorted
-
-      - name: Create diff
-        run: |
-          set -e
-
-          diff -u \
-            analysis/google-gki.config.sorted \
-            analysis/stock.config.sorted \
-            > analysis/google-vs-stock.diff \
+            stock/kernel \
+            > stock.config \
+            2> stock-config-error.txt \
             || true
 
-          echo "Diff created:"
-          wc -l analysis/google-vs-stock.diff
+          echo "Stock config size:"
+          stat -c%s stock.config
 
-      - name: Check important configs
+          echo ""
+          echo "Stock config lines:"
+          wc -l stock.config
+
+          if [ ! -s stock.config ]; then
+            echo ""
+            echo "ERROR: Could not extract stock.config"
+            cat stock-config-error.txt || true
+            exit 1
+          fi
+
+          echo ""
+          echo "Stock config successfully extracted."
+
+      - name: Save stock config
         run: |
           set -e
 
-          {
-            echo "===== STOCK ====="
+          mkdir -p arch/arm64/configs
 
-            if [ -s analysis/stock.config ]; then
-              grep -E \
-                '^CONFIG_(KALLSYMS|KALLSYMS_ALL|MODULES|DEBUG_INFO|DEBUG_INFO_BTF|BPF|SECURITY|SECURITYFS|SELINUX|PROC_FS)' \
-                analysis/stock.config \
-                || true
-            else
-              echo "STOCK CONFIG EMPTY"
-            fi
+          cp stock.config \
+            arch/arm64/configs/stock_pad7_defconfig
 
-            echo ""
-            echo "===== GOOGLE GKI ====="
+          echo "Stock config installed:"
+          wc -l arch/arm64/configs/stock_pad7_defconfig
 
-            grep -E \
-              '^CONFIG_(KALLSYMS|KALLSYMS_ALL|MODULES|DEBUG_INFO|DEBUG_INFO_BTF|BPF|SECURITY|SECURITYFS|SELINUX|PROC_FS)' \
-              analysis/google-gki_defconfig \
-              || true
-
-          } | tee analysis/important-configs.txt
-
-      - name: Create report
+      - name: Prepare compiler
         run: |
           set -e
 
+          echo "========================================"
+          echo "COMPILER"
+          echo "========================================"
+
+          clang --version
+          ld.lld --version
+
+      - name: Clean previous build
+        run: |
+          set -e
+
+          make mrproper
+
+      - name: Load stock Pad 7 config
+        run: |
+          set -e
+
+          mkdir -p out
+
+          cp stock.config \
+            out/.config
+
+          echo "Running olddefconfig..."
+
+          make \
+            O=out \
+            ARCH=arm64 \
+            olddefconfig
+
+          echo ""
+          echo "Final config:"
+          grep -E \
+            '^CONFIG_(IKCONFIG|KALLSYMS|KALLSYMS_ALL|MODULES|BPF|BPF_SYSCALL|SECURITY|SECURITYFS|SECURITY_SELINUX)' \
+            out/.config \
+            || true
+
+      - name: Verify final kernel config
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "FINAL CONFIG CHECK"
+          echo "========================================"
+
+          echo "CONFIG_ARM64:"
+          grep '^CONFIG_ARM64=' out/.config || true
+
+          echo ""
+          echo "CONFIG_MODULES:"
+          grep '^CONFIG_MODULES=' out/.config || true
+
+          echo ""
+          echo "CONFIG_KALLSYMS:"
+          grep '^CONFIG_KALLSYMS=' out/.config || true
+
+          echo ""
+          echo "CONFIG_KALLSYMS_ALL:"
+          grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
+
+      - name: Build kernel
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "BUILD STOCK KERNEL"
+          echo "========================================"
+
+          make \
+            -j"$(nproc)" \
+            O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            Image
+
+      - name: Check build output
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "BUILD RESULT"
+          echo "========================================"
+
+          if [ ! -f out/arch/arm64/boot/Image ]; then
+            echo "ERROR: Image was not produced."
+            exit 1
+          fi
+
+          echo ""
+          echo "Image:"
+          ls -lh out/arch/arm64/boot/Image
+
+          echo ""
+          echo "Image SHA256:"
+          sha256sum out/arch/arm64/boot/Image
+
+          echo ""
+          echo "Image file:"
+          file out/arch/arm64/boot/Image
+
+      - name: Create build report
+        run: |
+          set -e
+
+          mkdir -p report
+
           {
             echo "========================================"
-            echo "PAD 7 STEP 5"
-            echo "STOCK CONFIG VS GOOGLE GKI"
+            echo "PAD 7 STOCK KERNEL BUILD REPORT"
             echo "========================================"
 
             echo ""
-            echo "STOCK KERNEL:"
-            stat -c%s analysis/stock-kernel
-            sha256sum analysis/stock-kernel
-
-            echo ""
-            echo "STOCK CONFIG SIZE:"
-            stat -c%s analysis/stock.config
-
-            echo ""
-            echo "STOCK CONFIG LINES:"
-            wc -l analysis/stock.config
-
-            echo ""
-            echo "GOOGLE GKI:"
-            cd google-kernel
+            echo "SOURCE COMMIT:"
             git rev-parse HEAD
+
+            echo ""
+            echo "SOURCE KERNEL VERSION:"
             make -s kernelversion
-            cd ..
 
             echo ""
-            echo "IMPORTANT CONFIGS:"
-            cat analysis/important-configs.txt
+            echo "STOCK CONFIG:"
+            wc -l stock.config
+            sha256sum stock.config
 
             echo ""
-            echo "DIFF:"
-            cat analysis/google-vs-stock.diff
+            echo "FINAL CONFIG:"
+            sha256sum out/.config
+
+            echo ""
+            echo "BUILT IMAGE:"
+            ls -lh out/arch/arm64/boot/Image
+            sha256sum out/arch/arm64/boot/Image
+            file out/arch/arm64/boot/Image
 
             echo ""
             echo "========================================"
-            echo "STEP 5 COMPLETE"
+            echo "STEP 6 COMPLETE"
             echo "========================================"
 
-          } | tee analysis/FINAL-REPORT.txt
+          } | tee report/FINAL-REPORT.txt
 
-      - name: Upload Step 5
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pad7-step5-stock-config
-          path: analysis/
+          name: pad7-step6-kernel-build
+          path: |
+            out/arch/arm64/boot/Image
+            out/.config
+            stock.config
+            report/FINAL-REPORT.txt
