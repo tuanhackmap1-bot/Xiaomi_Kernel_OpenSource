@@ -13,12 +13,14 @@ jobs:
       # CHECKOUT
       # ============================================================
 
-      - name: CHECK KERNEL SOURCE
+      
+          
+      - name: INSPECT KERNEL SOURCE
         run: |
           set -e
 
           echo "========================================"
-          echo "       KERNEL SOURCE"
+          echo "       INSPECT KERNEL SOURCE"
           echo "========================================"
 
           echo "Commit:"
@@ -29,40 +31,14 @@ jobs:
           make -s kernelversion
 
           echo ""
-          echo "Branch:"
-          git branch --show-current
-
-          echo ""
-          echo "Source check complete"
-          
-      - name: FIND REMOTE KERNEL 6.1.138
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "   FIND REMOTE KERNEL 6.1.138"
-          echo "========================================"
-
-          echo "=== CURRENT KERNEL VERSION ==="
-          make -s kernelversion
-
-          echo ""
-          echo "=== REMOTE PAD 7 REFS ==="
-
-          git ls-remote --heads \
-            https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
-            | grep -Ei 'uke|pad.?7' || true
-
-          echo ""
-          echo "=== REMOTE TAGS ==="
-
-          git ls-remote --tags \
-            https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
-            | grep -Ei '6\.1\.138|uke|pad.?7' || true
+          echo "Kernel config candidates:"
+          find arch/arm64/configs -maxdepth 1 -type f \
+            | grep -Ei 'xiaomi|uke|vendor|defconfig' \
+            | head -30 || true
 
           echo ""
           echo "========================================"
-          echo "   SEARCH COMPLETE"
+          echo "       INSPECTION COMPLETE"
           echo "========================================"
           
 
