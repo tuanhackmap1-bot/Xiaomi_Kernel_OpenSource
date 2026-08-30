@@ -90,11 +90,11 @@ jobs:
             "https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img"
 
           echo ""
-          echo "boot.img size:"
+          echo "boot.img:"
           stat -c%s boot.img
 
           echo ""
-          echo "boot.img SHA256:"
+          echo "SHA256:"
           sha256sum boot.img
 
       - name: Extract stock kernel
@@ -131,26 +131,16 @@ jobs:
 
           ./extract-ikconfig \
             stock/kernel \
-            > stock.config \
-            2> stock-config-error.txt
-
-          echo ""
-          echo "Stock config size:"
-          stat -c%s stock.config
-
-          echo ""
-          echo "Stock config lines:"
-          wc -l stock.config
+            > stock.config
 
           if [ ! -s stock.config ]; then
-            echo ""
             echo "ERROR: Could not extract stock.config"
-            cat stock-config-error.txt || true
             exit 1
           fi
 
           echo ""
-          echo "Stock config successfully extracted."
+          echo "Stock config:"
+          wc -l stock.config
 
       - name: Save stock config
         run: |
@@ -168,31 +158,21 @@ jobs:
         run: |
           set -e
 
-          echo "========================================"
-          echo "COMPILER"
-          echo "========================================"
-
           clang --version
           ld.lld --version
 
-      - name: Check missing HWID source
+      - name: Check and fix missing HWID source
         run: |
           set -e
 
           echo "========================================"
-          echo "CHECK HWID SOURCE"
+          echo "HWID CHECK"
           echo "========================================"
 
-          echo ""
-          echo "HWID references:"
-          git grep -n -i "drivers/misc/hwid" || true
-
-          echo ""
-          echo "HWID directory:"
           if [ -d drivers/misc/hwid ]; then
-            find drivers/misc/hwid -maxdepth 2 -type f -print
+            echo "HWID source exists."
           else
-            echo "MISSING: drivers/misc/hwid"
+            echo "HWID source is missing."
 
             if grep -q 'source "drivers/misc/hwid/Kconfig"' drivers/misc/Kconfig; then
               cp drivers/misc/Kconfig \
@@ -206,14 +186,12 @@ jobs:
             fi
           fi
 
-          echo ""
-          echo "HWID check:"
           if grep -n 'drivers/misc/hwid/Kconfig' drivers/misc/Kconfig; then
             echo "ERROR: HWID Kconfig reference still exists."
             exit 1
-          else
-            echo "HWID Kconfig check passed."
           fi
+
+          echo "HWID check passed."
 
       - name: Load stock Pad 7 config
         run: |
@@ -224,6 +202,33 @@ jobs:
           cp stock.config \
             out/.config
 
+          echo "========================================"
+          echo "REMOVE STOCK KMI WHITELIST"
+          echo "========================================"
+
+          echo ""
+          echo "Stock KMI settings:"
+          grep -E \
+            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)=' \
+            out/.config \
+            || true
+
+          echo ""
+          echo "Removing KMI whitelist options before olddefconfig..."
+
+          scripts/config \
+            --file out/.config \
+            -d TRIM_UNUSED_KSYMS \
+            -d UNUSED_KSYMS_WHITELIST
+
+          echo ""
+          echo "KMI settings after first cleanup:"
+          grep -E \
+            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)=' \
+            out/.config \
+            || true
+
+          echo ""
           echo "Running olddefconfig..."
 
           make \
@@ -232,52 +237,68 @@ jobs:
             olddefconfig
 
           echo ""
+          echo "Cleaning KMI whitelist again after olddefconfig..."
+
+          scripts/config \
+            --file out/.config \
+            -d TRIM_UNUSED_KSYMS \
+            -d UNUSED_KSYMS_WHITELIST
+
+          echo ""
+          echo "Running olddefconfig second time..."
+
+          make \
+            O=out \
+            ARCH=arm64 \
+            olddefconfig
+
+          echo ""
+          echo "========================================"
+          echo "VERIFY KMI CONFIG"
+          echo "========================================"
+
+          echo ""
+          echo "out/.config:"
+          grep -E \
+            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)=' \
+            out/.config \
+            || true
+
+          echo ""
+          echo "include/config/auto.conf:"
+          grep -E \
+            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)=' \
+            out/include/config/auto.conf \
+            || true
+
+          if grep -q '^CONFIG_UNUSED_KSYMS_WHITELIST=' out/.config; then
+            echo "ERROR: UNUSED_KSYMS_WHITELIST is still enabled."
+            exit 1
+          fi
+
+          if grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y' out/.config; then
+            echo "ERROR: TRIM_UNUSED_KSYMS is still enabled."
+            exit 1
+          fi
+
+          if grep -q '^CONFIG_UNUSED_KSYMS_WHITELIST=' out/include/config/auto.conf; then
+            echo "ERROR: auto.conf still contains UNUSED_KSYMS_WHITELIST."
+            exit 1
+          fi
+
+          if grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y' out/include/config/auto.conf; then
+            echo "ERROR: auto.conf still contains TRIM_UNUSED_KSYMS."
+            exit 1
+          fi
+
+          echo ""
+          echo "KMI whitelist successfully disabled."
+
+          echo ""
           echo "Final config:"
           grep -E \
-            '^CONFIG_(IKCONFIG|KALLSYMS|KALLSYMS_ALL|MODULES|BPF|BPF_SYSCALL|SECURITY|SECURITYFS|SECURITY_SELINUX|TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)' \
+            '^CONFIG_(IKCONFIG|KALLSYMS|KALLSYMS_ALL|MODULES|BPF|BPF_SYSCALL|SECURITY|SECURITYFS|SECURITY_SELINUX)' \
             out/.config \
-            || true
-
-      - name: Check ABI KMI requirements
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "CHECK ABI / KMI REQUIREMENTS"
-          echo "========================================"
-
-          echo ""
-          echo "abi_symbollist files:"
-          find . \
-            -type f \
-            \( \
-              -name 'abi_symbollist.raw' \
-              -o -name 'abi_symbollist' \
-              -o -name '*symbollist*' \
-            \) \
-            -print \
-            2>/dev/null \
-            | sort \
-            | head -200 \
-            || true
-
-          echo ""
-          echo "CONFIG KMI settings:"
-          grep -E \
-            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)' \
-            out/.config \
-            || true
-
-          echo ""
-          echo "Source ABI references:"
-          grep -Rni \
-            -E 'abi_symbollist|UNUSED_KSYMS_WHITELIST|TRIM_UNUSED_KSYMS' \
-            . \
-            --exclude-dir=.git \
-            --exclude='*.o' \
-            --exclude='*.cmd' \
-            2>/dev/null \
-            | head -200 \
             || true
 
       - name: Verify final kernel config
@@ -303,6 +324,13 @@ jobs:
           echo ""
           echo "CONFIG_KALLSYMS_ALL:"
           grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
+
+          echo ""
+          echo "KMI options:"
+          grep -E \
+            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)' \
+            out/.config \
+            || true
 
       - name: Build kernel
         run: |
