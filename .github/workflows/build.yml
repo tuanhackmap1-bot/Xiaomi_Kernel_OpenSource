@@ -1,4 +1,4 @@
-name: Step 7 - Prepare KernelSU SUSFS 6.1
+name: Step 7 - GKI 6.1.138 + KernelSU + SUSFS
 
 on:
   workflow_dispatch:
@@ -15,17 +15,6 @@ jobs:
           repository: android/kernel_common
           ref: android14-6.1.138_r00
           fetch-depth: 1
-
-      - name: Show kernel version
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "GKI SOURCE"
-          echo "========================================"
-
-          git rev-parse HEAD
-          make -s kernelversion
 
       - name: Install dependencies
         run: |
@@ -49,16 +38,24 @@ jobs:
             python3 \
             rsync
 
-      - name: Clone KernelSU
+      - name: Verify GKI
         run: |
           set -e
 
-          git clone \
-            --depth=1 \
-            https://github.com/tiann/KernelSU.git \
-            KernelSU
+          echo "========================================"
+          echo "GKI VERSION"
+          echo "========================================"
 
-      - name: Clone SUSFS
+          echo "Commit:"
+          git rev-parse HEAD
+
+          echo ""
+          echo "Kernel version:"
+          make -s kernelversion
+
+          test "$(make -s kernelversion)" = "6.1.138"
+
+      - name: Clone SUSFS stable branch
         run: |
           set -e
 
@@ -68,32 +65,55 @@ jobs:
             https://github.com/deepongi-labs/susfs4ksu.git \
             susfs
 
-      - name: Verify SUSFS kernel patch
+          echo "SUSFS commit:"
+          git -C susfs rev-parse HEAD
+
+      - name: Clone KernelSU release
+        run: |
+          set -e
+
+          git clone \
+            --depth=1 \
+            --branch v3.2.4 \
+            https://github.com/tiann/KernelSU.git \
+            KernelSU
+
+          echo "KernelSU commit:"
+          git -C KernelSU rev-parse HEAD
+
+      - name: Check SUSFS patch compatibility
         run: |
           set -e
 
           echo "========================================"
-          echo "SUSFS PATCH FILES"
+          echo "CHECK KSU / SUSFS COMPATIBILITY"
           echo "========================================"
-
-          find susfs/kernel_patches \
-            -maxdepth 2 \
-            -type f \
-            | sort
-
-          echo ""
-          echo "6.1 kernel patch candidates:"
-
-          find susfs/kernel_patches \
-            -type f \
-            -name '*6.1*.patch' \
-            -print
-
-          echo ""
-          echo "KernelSU patch:"
 
           test -f \
             susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+
+          test -f \
+            susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
+
+          echo ""
+          echo "Testing KernelSU patch..."
+
+          cd KernelSU
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          cp \
+            ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch \
+            .
+
+          patch \
+            --dry-run \
+            -p1 \
+            < 10_enable_susfs_for_ksu.patch
+
+          echo ""
+          echo "KernelSU SUSFS patch compatibility: OK"
 
       - name: Integrate KernelSU
         run: |
@@ -107,38 +127,40 @@ jobs:
 
           cd KernelSU
 
-          patch -p1 \
-            < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          patch \
+            -p1 \
+            < 10_enable_susfs_for_ksu.patch
 
       - name: Install SUSFS kernel files
         run: |
           set -e
 
-          cp -a \
-            susfs/kernel_patches/fs/. \
-            fs/
+          cp \
+            susfs/kernel_patches/fs/susfs.c \
+            fs/susfs.c
 
-          cp -a \
-            susfs/kernel_patches/include/linux/. \
-            include/linux/
+          cp \
+            susfs/kernel_patches/include/linux/susfs.h \
+            include/linux/susfs.h
 
-      - name: Apply SUSFS 6.1 kernel patch
+      - name: Apply SUSFS GKI 6.1 patch
         run: |
           set -e
 
-          PATCH="$(find susfs/kernel_patches \
-            -type f \
-            -name '*6.1*.patch' \
-            | head -n 1)"
+          cp \
+            susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch \
+            .
 
-          test -n "$PATCH"
+          patch \
+            --dry-run \
+            -p1 \
+            < 50_add_susfs_in_gki-android14-6.1.patch
 
-          echo "Using:"
-          echo "$PATCH"
+          patch \
+            -p1 \
+            < 50_add_susfs_in_gki-android14-6.1.patch
 
-          patch -p1 < "$PATCH"
-
-      - name: Remove protected exports
+      - name: Remove GKI protected exports
         run: |
           set -e
 
@@ -146,7 +168,7 @@ jobs:
             android/abi_gki_protected_exports_aarch64 \
             android/abi_gki_protected_exports_x86_64
 
-      - name: Verify SUSFS config
+      - name: Verify SUSFS integration
         run: |
           set -e
 
@@ -154,23 +176,32 @@ jobs:
           echo "VERIFY SUSFS"
           echo "========================================"
 
-          test -d KernelSU
+          test -f fs/susfs.c
+          test -f include/linux/susfs.h
           test -f KernelSU/kernel/Kconfig
 
+          echo ""
+          echo "SUSFS files:"
+          ls -lh \
+            fs/susfs.c \
+            include/linux/susfs.h
+
+          echo ""
+          echo "KernelSU SUSFS symbols:"
           grep -Rni \
-            'CONFIG_KSU_SUSFS' \
-            KernelSU/kernel/Kconfig \
+            "CONFIG_KSU_SUSFS" \
+            KernelSU/kernel \
             | head -20
 
           echo ""
-          echo "SUSFS source integrated successfully."
+          echo "SUSFS integration completed."
 
-      - name: Upload patched GKI source
+      - name: Upload patched source
         uses: actions/upload-artifact@v4
         with:
           name: gki-6.1.138-kernelsu-susfs-source
           path: |
             KernelSU/
-            fs/
-            include/linux/
+            fs/susfs.c
+            include/linux/susfs.h
             android/
