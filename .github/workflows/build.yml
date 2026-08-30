@@ -1,399 +1,215 @@
-name: Extract Stock 6.1.138 Kernel
+name: Compare Google GKI 6.1.138
 
 on:
   workflow_dispatch:
 
 jobs:
-  extract:
+  compare:
     runs-on: ubuntu-24.04
 
     steps:
-
-      # ============================================================
-      # DOWNLOAD STOCK BOOT
-      # ============================================================
-
-      - name: Download stock boot.img
+      - name: Check Google GKI tag
         run: |
           set -e
 
           echo "========================================"
-          echo "       DOWNLOAD STOCK BOOT"
+          echo "GOOGLE GKI 6.1.138"
           echo "========================================"
 
-          wget -O boot.img \
-            https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img
+          git ls-remote \
+            https://android.googlesource.com/kernel/common.git \
+            refs/tags/android14-6.1.138_r00
 
-          ls -lh boot.img
+      - name: Clone Google kernel
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "CLONE GOOGLE KERNEL"
+          echo "========================================"
+
+          git clone \
+            --depth=1 \
+            --branch android14-6.1.138_r00 \
+            https://android.googlesource.com/kernel/common.git \
+            google-kernel
+
+          cd google-kernel
 
           echo ""
-          echo "SHA256:"
-          sha256sum boot.img
+          echo "Commit:"
+          git log -1 --oneline
 
-          EXPECTED="22f5e87ea6764e22bf191182d9dcffb0f423af53853e0f70dc0c278c94cb129a"
-          ACTUAL="$(sha256sum boot.img | awk '{print $1}')"
+          echo ""
+          echo "Commit SHA:"
+          git rev-parse HEAD
 
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "ERROR: SHA256 mismatch"
-            exit 1
+          echo ""
+          echo "Kernel version:"
+          make -s kernelversion
+
+      - name: Inspect Google tree
+        run: |
+          set -e
+
+          cd google-kernel
+
+          echo "========================================"
+          echo "GOOGLE TREE"
+          echo "========================================"
+
+          echo ""
+          echo "Tag:"
+          git describe --tags --always
+
+          echo ""
+          echo "Kernel version:"
+          make -s kernelversion
+
+          echo ""
+          echo "ARM64 configs:"
+          find arch/arm64/configs \
+            -maxdepth 1 \
+            -type f \
+            | sort \
+            | grep -E 'gki|defconfig' \
+            | head -100 || true
+
+          echo ""
+          echo "Build configs:"
+          find . \
+            -maxdepth 3 \
+            -name 'build.config*' \
+            | sort \
+            | head -100 || true
+
+      - name: Check GKI config
+        run: |
+          set -e
+
+          cd google-kernel
+
+          echo "========================================"
+          echo "GKI CONFIG"
+          echo "========================================"
+
+          if [ -f arch/arm64/configs/gki_defconfig ]; then
+            echo ""
+            echo "KALLSYMS:"
+            grep -E '^CONFIG_KALLSYMS' \
+              arch/arm64/configs/gki_defconfig || true
+
+            echo ""
+            echo "DEBUG INFO:"
+            grep -E '^CONFIG_DEBUG_INFO' \
+              arch/arm64/configs/gki_defconfig || true
+
+            echo ""
+            echo "MODULES:"
+            grep -E '^CONFIG_MODULES' \
+              arch/arm64/configs/gki_defconfig || true
+          else
+            echo "gki_defconfig not found"
           fi
 
-          echo "SHA256 OK"
-
-
-      # ============================================================
-      # INSTALL TOOLS
-      # ============================================================
-
-      - name: Install tools
+      - name: Check kernel source symbols
         run: |
           set -e
 
-          sudo apt-get update
-
-          sudo apt-get install -y \
-            binutils \
-            llvm \
-            lld \
-            file \
-            xxd \
-            python3
-
-          echo "Tools installed"
-
-
-      # ============================================================
-      # READ ANDROID BOOT HEADER
-      # ============================================================
-
-      - name: Read boot header
-        run: |
-          set -e
+          cd google-kernel
 
           echo "========================================"
-          echo "       BOOT HEADER"
+          echo "KERNEL SOURCE SYMBOLS"
           echo "========================================"
 
-          python3 - <<'PY'
-          import struct
+          echo ""
+          echo "kallsyms:"
+          grep -R \
+            -E 'kallsyms_lookup_name|kallsyms_on_each_symbol' \
+            kernel include \
+            2>/dev/null \
+            | head -100 || true
 
-          with open("boot.img", "rb") as f:
-              h = f.read(4096)
+          echo ""
+          echo "securityfs:"
+          grep -R \
+            -E 'securityfs|security_inode' \
+            fs security include \
+            2>/dev/null \
+            | head -100 || true
 
-          print("Magic       :", h[:8])
-          print("Kernel size :", struct.unpack_from("<I", h, 8)[0])
-          print("Ramdisk size:", struct.unpack_from("<I", h, 16)[0])
-          print("Second size :", struct.unpack_from("<I", h, 24)[0])
-          print("Header ver  :", struct.unpack_from("<I", h, 40)[0])
-          PY
+          echo ""
+          echo "proc:"
+          grep -R \
+            -E 'proc_create|proc_remove' \
+            fs include \
+            2>/dev/null \
+            | head -100 || true
 
-
-      # ============================================================
-      # EXTRACT EXACT KERNEL PAYLOAD
-      # ============================================================
-
-      - name: Extract kernel payload
+      - name: Create report
         run: |
           set -e
 
           mkdir -p analysis
 
-          KERNEL_SIZE=35432960
-          HEADER_SIZE=4096
+          echo "========================================" > analysis/google-gki-report.txt
+          echo "GOOGLE ANDROID 14 GKI 6.1.138" >> analysis/google-gki-report.txt
+          echo "========================================" >> analysis/google-gki-report.txt
 
-          echo "========================================"
-          echo "       EXTRACT KERNEL"
-          echo "========================================"
+          echo "" >> analysis/google-gki-report.txt
+          echo "REMOTE TAG:" >> analysis/google-gki-report.txt
 
-          echo "Header size : $HEADER_SIZE"
-          echo "Kernel size : $KERNEL_SIZE"
+          git ls-remote \
+            https://android.googlesource.com/kernel/common.git \
+            refs/tags/android14-6.1.138_r00 \
+            >> analysis/google-gki-report.txt
 
-          dd \
-            if=boot.img \
-            of=analysis/kernel.payload \
-            bs=1 \
-            skip=$HEADER_SIZE \
-            count=$KERNEL_SIZE \
-            status=progress
+          cd google-kernel
 
-          echo ""
-          echo "Extracted kernel:"
-          ls -lh analysis/kernel.payload
+          echo "" >> ../analysis/google-gki-report.txt
+          echo "LOCAL COMMIT:" >> ../analysis/google-gki-report.txt
+          git rev-parse HEAD >> ../analysis/google-gki-report.txt
 
-          echo ""
-          echo "Expected size:"
-          echo "$KERNEL_SIZE bytes"
+          echo "" >> ../analysis/google-gki-report.txt
+          echo "DESCRIPTION:" >> ../analysis/google-gki-report.txt
+          git log -1 --oneline >> ../analysis/google-gki-report.txt
 
-          echo ""
-          echo "Actual size:"
-          stat -c%s analysis/kernel.payload
+          echo "" >> ../analysis/google-gki-report.txt
+          echo "KERNEL VERSION:" >> ../analysis/google-gki-report.txt
+          make -s kernelversion >> ../analysis/google-gki-report.txt
 
-          test "$(stat -c%s analysis/kernel.payload)" = "$KERNEL_SIZE"
+          echo "" >> ../analysis/google-gki-report.txt
+          echo "TAG:" >> ../analysis/google-gki-report.txt
+          git describe --tags --always >> ../analysis/google-gki-report.txt
 
+          echo "" >> ../analysis/google-gki-report.txt
+          echo "GKI KALLSYMS CONFIG:" >> ../analysis/google-gki-report.txt
+          grep -E '^CONFIG_KALLSYMS' \
+            arch/arm64/configs/gki_defconfig \
+            >> ../analysis/google-gki-report.txt || true
 
-      # ============================================================
-      # IDENTIFY KERNEL
-      # ============================================================
+          echo "" >> ../analysis/google-gki-report.txt
+          echo "GKI DEBUG INFO CONFIG:" >> ../analysis/google-gki-report.txt
+          grep -E '^CONFIG_DEBUG_INFO' \
+            arch/arm64/configs/gki_defconfig \
+            >> ../analysis/google-gki-report.txt || true
 
-      - name: Identify kernel payload
-        run: |
-          set -e
+          echo "" >> ../analysis/google-gki-report.txt
+          echo "GKI MODULE CONFIG:" >> ../analysis/google-gki-report.txt
+          grep -E '^CONFIG_MODULES' \
+            arch/arm64/configs/gki_defconfig \
+            >> ../analysis/google-gki-report.txt || true
 
-          echo "========================================"
-          echo "       IDENTIFY KERNEL PAYLOAD"
-          echo "========================================"
+          echo "" >> ../analysis/google-gki-report.txt
+          echo "REPORT COMPLETE" >> ../analysis/google-gki-report.txt
 
-          file analysis/kernel.payload
-
-          echo ""
-          echo "First 64 bytes:"
-          xxd -l 64 analysis/kernel.payload
-
-          echo ""
-          echo "Strings:"
-          strings -a analysis/kernel.payload |
-            grep -Ei \
-            'Linux version|6\.1\.138|g0c3d559bcd85|android14|Xiaomi|uke|clang|LLVM' |
-            head -100 \
-            || true
-
-
-      # ============================================================
-      # SEARCH ARM64 IMAGE SIGNATURE
-      # ============================================================
-
-      - name: Check ARM64 kernel image
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "       ARM64 IMAGE CHECK"
-          echo "========================================"
-
-          python3 - <<'PY'
-          data = open("analysis/kernel.payload", "rb").read(64)
-
-          print("Magic bytes:", data[:16].hex())
-
-          # ARM64 Linux Image normally contains magic "ARMd"
-          pos = data.find(b"ARMd")
-
-          if pos >= 0:
-              print("ARM64 Linux Image magic found at offset:", pos)
-          else:
-              print("ARM64 Image magic not found in first 64 bytes")
-          PY
-
-
-      # ============================================================
-      # SEARCH ELF
-      # ============================================================
-
-      - name: Check ELF
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "       ELF CHECK"
-          echo "========================================"
-
-          if head -c 4 analysis/kernel.payload | grep -q "ELF"; then
-            echo "ELF detected"
-
-            readelf -h analysis/kernel.payload || true
-            readelf -S analysis/kernel.payload || true
-
-          else
-            echo "Kernel payload is not a raw ELF image"
-            echo "This is normal for Android compressed Image payloads."
-          fi
-
-
-      # ============================================================
-      # SEARCH KALLSYMS
-      # ============================================================
-
-      - name: Analyze kallsyms
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "       KALLSYMS"
-          echo "========================================"
-
-          strings -a analysis/kernel.payload |
-            grep -Ei \
-            'kallsyms_lookup_name|kallsyms_on_each_symbol|kallsyms_lookup_size_offset|module_kallsyms_lookup_name|core_kallsyms' |
-            sort -u |
-            tee analysis/kallsyms-real.txt \
-            || true
+          cd ..
 
           echo ""
-          echo "Count:"
-          wc -l analysis/kallsyms-real.txt || true
+          cat analysis/google-gki-report.txt
 
-
-      # ============================================================
-      # ANALYZE BTF
-      # ============================================================
-
-      - name: Analyze BTF
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "       BTF"
-          echo "========================================"
-
-          strings -a analysis/kernel.payload |
-            grep -Ei \
-            'btf_vmlinux|BTF_MAGIC|\.BTF|CONFIG_DEBUG_INFO_BTF|missing vmlinux BTF' |
-            head -300 |
-            tee analysis/btf-real.txt \
-            || true
-
-          echo ""
-          echo "BTF string count:"
-          wc -l analysis/btf-real.txt || true
-
-
-      # ============================================================
-      # SEARCH KERNEL CONFIG
-      # ============================================================
-
-      - name: Search kernel config
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "       KERNEL CONFIG"
-          echo "========================================"
-
-          strings -a analysis/kernel.payload |
-            grep -E \
-            'CONFIG_(KALLSYMS|DEBUG_INFO|DEBUG_INFO_BTF|MODULES|KPROBES|BPF|SECURITY|SELINUX)' |
-            sort -u |
-            tee analysis/config-real.txt \
-            || true
-
-
-      # ============================================================
-      # SEARCH SYMBOLS
-      # ============================================================
-
-      - name: Search important symbols
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "       IMPORTANT SYMBOLS"
-          echo "========================================"
-
-          strings -a analysis/kernel.payload |
-            grep -Ei \
-            'proc_create|securityfs|security_inode|selinux|avc_denied|vfs_read|vfs_write|do_execve|execve|register_chrdev|misc_register|module_layout' |
-            sort -u |
-            head -1000 |
-            tee analysis/important-symbols-real.txt \
-            || true
-
-
-      # ============================================================
-      # KERNEL VERSION
-      # ============================================================
-
-      - name: Extract kernel version
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "       KERNEL VERSION"
-          echo "========================================"
-
-          strings -a analysis/kernel.payload |
-            grep -E \
-            'Linux version 6\.1\.138|6\.1\.138-android14-11-g0c3d559bcd85' |
-            head -50 |
-            tee analysis/kernel-version-real.txt \
-            || true
-
-
-      # ============================================================
-      # CREATE REPORT
-      # ============================================================
-
-      - name: Create final report
-        run: |
-          set -e
-
-          {
-            echo "========================================"
-            echo "XIAOMI PAD 7 STOCK KERNEL PAYLOAD"
-            echo "========================================"
-            echo ""
-
-            echo "BOOT SHA256:"
-            sha256sum boot.img
-
-            echo ""
-            echo "KERNEL PAYLOAD:"
-            ls -lh analysis/kernel.payload
-
-            echo ""
-            echo "PAYLOAD SHA256:"
-            sha256sum analysis/kernel.payload
-
-            echo ""
-            echo "=== FILE ==="
-            file analysis/kernel.payload
-
-            echo ""
-            echo "=== KERNEL VERSION ==="
-            cat analysis/kernel-version-real.txt || true
-
-            echo ""
-            echo "=== KALLSYMS ==="
-            cat analysis/kallsyms-real.txt || true
-
-            echo ""
-            echo "=== BTF ==="
-            cat analysis/btf-real.txt || true
-
-            echo ""
-            echo "=== CONFIG ==="
-            cat analysis/config-real.txt || true
-
-            echo ""
-            echo "=== IMPORTANT SYMBOLS ==="
-            cat analysis/important-symbols-real.txt || true
-
-            echo ""
-            echo "=== ARM64 ==="
-            xxd -l 64 analysis/kernel.payload || true
-
-            echo ""
-            echo "========================================"
-            echo "END"
-            echo "========================================"
-
-          } | tee analysis/FINAL-REPORT.txt
-
-
-      # ============================================================
-      # PRINT REPORT
-      # ============================================================
-
-      - name: Show report
-        run: |
-          cat analysis/FINAL-REPORT.txt
-
-
-      # ============================================================
-      # UPLOAD EVERYTHING
-      # ============================================================
-
-      - name: Upload extracted kernel and report
+      - name: Upload report
         uses: actions/upload-artifact@v4
         with:
-          name: pad7-stock-6.1.138-kernel-analysis
-          path: analysis/
+          name: google-gki-6.1.138-report
+          path: analysis/google-gki-report.txt
