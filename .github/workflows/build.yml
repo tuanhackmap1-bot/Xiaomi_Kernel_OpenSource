@@ -1,4 +1,4 @@
-name: Step 4 - Analyze Stock Boot Header
+name: Step 5 - Extract Stock Config
 
 on:
   workflow_dispatch:
@@ -7,273 +7,209 @@ on:
       - uke-v-oss
 
 jobs:
-  analyze:
+  extract:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Download stock boot.img
+      - name: Download stock boot
         run: |
           set -e
-
           wget -q --show-progress \
             -O boot.img \
             "https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img"
-
-          echo "SHA256:"
-          sha256sum boot.img
-
-          echo "SIZE:"
-          stat -c%s boot.img
 
       - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            python3 \
-            file \
             binutils \
-            xz-utils \
+            python3 \
             gzip \
             bzip2 \
+            xz-utils \
             lz4 \
-            zstd \
-            cpio
+            zstd
 
-      - name: Parse Android boot header
+      - name: Extract stock kernel
         run: |
           set -e
-
           mkdir -p analysis
 
-          python3 - <<'PY'
-          import struct
-          import hashlib
+          dd \
+            if=boot.img \
+            of=analysis/stock-kernel \
+            bs=4096 \
+            skip=1 \
+            count=8641 \
+            status=progress
 
-          f = open("boot.img", "rb")
-          data = f.read(8192)
-          f.close()
-
-          print("========================================")
-          print("ANDROID BOOT HEADER")
-          print("========================================")
-
-          print("Magic:", data[0:8])
-
-          if data[0:8] != b"ANDROID!":
-              raise SystemExit("ERROR: Not an Android boot image")
-
-          # Android boot header v3/v4 layout
-          kernel_size = struct.unpack_from("<I", data, 8)[0]
-          ramdisk_size = struct.unpack_from("<I", data, 12)[0]
-          os_version = struct.unpack_from("<I", data, 16)[0]
-          header_size = struct.unpack_from("<I", data, 20)[0]
-
-          print("Kernel size :", kernel_size)
-          print("Ramdisk size:", ramdisk_size)
-          print("OS version  :", hex(os_version))
-          print("Header size :", header_size)
-
-          # Detect likely header version from header_size
-          if header_size == 1580:
-              header_version = 3
-          elif header_size == 2112:
-              header_version = 4
-          else:
-              header_version = "unknown"
-
-          print("Header version:", header_version)
-
-          boot_size = len(open("boot.img", "rb").read())
-
-          print("Boot image size:", boot_size)
-
-          open("analysis/boot-header.txt", "w").write(
-              f"magic={data[0:8]!r}\n"
-              f"kernel_size={kernel_size}\n"
-              f"ramdisk_size={ramdisk_size}\n"
-              f"os_version=0x{os_version:08x}\n"
-              f"header_size={header_size}\n"
-              f"header_version={header_version}\n"
-              f"boot_size={boot_size}\n"
-          )
-
-          # Header v3/v4 kernel starts immediately after page 4096.
-          page = 4096
-
-          kernel_offset = page
-
-          kernel_end = kernel_offset + kernel_size
-
-          print("")
-          print("Kernel offset:", kernel_offset)
-          print("Kernel end:", kernel_end)
-
-          open("analysis/kernel-offset.txt", "w").write(
-              f"kernel_offset={kernel_offset}\n"
-              f"kernel_size={kernel_size}\n"
-              f"kernel_end={kernel_end}\n"
-          )
-
-          with open("boot.img", "rb") as src:
-              src.seek(kernel_offset)
-              kernel = src.read(kernel_size)
-
-          with open("analysis/stock-kernel", "wb") as dst:
-              dst.write(kernel)
-
-          print("")
-          print("Extracted kernel:", len(kernel), "bytes")
-          print("Kernel SHA256:", hashlib.sha256(kernel).hexdigest())
-          PY
-
-      - name: Inspect extracted stock kernel
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "STOCK KERNEL"
-          echo "========================================"
-
+          echo "Stock kernel:"
+          stat -c%s analysis/stock-kernel
           file analysis/stock-kernel
 
-          echo ""
-          echo "SHA256:"
-          sha256sum analysis/stock-kernel
-
-          echo ""
-          echo "Kernel strings:"
-          strings -a analysis/stock-kernel |
-            grep -E \
-            'Linux version|6\.1\.138|g0c3d559bcd85|android14' |
-            head -100 \
-            | tee analysis/kernel-version.txt \
-            || true
-
-      - name: Search for embedded config
+      - name: Extract IKCONFIG
         run: |
           set -e
 
-          echo "========================================"
-          echo "IKCONFIG CHECK"
-          echo "========================================"
+          wget -q \
+            -O extract-ikconfig \
+            "https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-ikconfig"
 
-          if strings -a analysis/stock-kernel |
-            grep -q "IKCFG_ST"; then
+          chmod +x extract-ikconfig
 
-            echo "IKCONFIG marker FOUND"
+          echo "Trying to extract stock config..."
 
+          ./extract-ikconfig \
+            analysis/stock-kernel \
+            > analysis/stock.config \
+            2> analysis/extract-error.txt || true
+
+          echo ""
+          echo "Config size:"
+          stat -c%s analysis/stock.config
+
+          echo ""
+          echo "Config lines:"
+          wc -l analysis/stock.config
+
+          echo ""
+          echo "First 30 lines:"
+          head -30 analysis/stock.config || true
+
+          echo ""
+          echo "Extractor message:"
+          cat analysis/extract-error.txt || true
+
+      - name: Clone Google GKI 6.1.138
+        run: |
+          set -e
+
+          git clone \
+            --depth=1 \
+            --branch android14-6.1.138_r00 \
+            "https://android.googlesource.com/kernel/common.git" \
+            google-kernel
+
+          cd google-kernel
+
+          echo "Google commit:"
+          git rev-parse HEAD
+
+          echo "Google kernel:"
+          make -s kernelversion
+
+      - name: Save Google config
+        run: |
+          set -e
+
+          cp \
+            google-kernel/arch/arm64/configs/gki_defconfig \
+            analysis/google-gki_defconfig
+
+      - name: Normalize configs
+        run: |
+          set -e
+
+          if [ -s analysis/stock.config ]; then
+            grep '^CONFIG_' \
+              analysis/stock.config \
+              | sort \
+              > analysis/stock.config.sorted
           else
-
-            echo "IKCONFIG marker NOT FOUND"
-
+            touch analysis/stock.config.sorted
           fi
 
-          echo ""
-          echo "Config strings:"
-          strings -a analysis/stock-kernel |
-            grep -E '^CONFIG_[A-Z0-9_]+=' |
-            head -100 \
-            || true
+          grep '^CONFIG_' \
+            analysis/google-gki_defconfig \
+            | sort \
+            > analysis/google-gki.config.sorted
 
-      - name: Inspect boot partitions
+      - name: Create diff
         run: |
           set -e
 
-          echo "========================================"
-          echo "BOOT IMAGE STRUCTURE"
-          echo "========================================"
+          diff -u \
+            analysis/google-gki.config.sorted \
+            analysis/stock.config.sorted \
+            > analysis/google-vs-stock.diff \
+            || true
 
-          python3 - <<'PY'
-          import struct
+          echo "Diff created:"
+          wc -l analysis/google-vs-stock.diff
 
-          data = open("boot.img", "rb").read(8192)
+      - name: Check important configs
+        run: |
+          set -e
 
-          kernel_size = struct.unpack_from("<I", data, 8)[0]
-          ramdisk_size = struct.unpack_from("<I", data, 12)[0]
-          header_size = struct.unpack_from("<I", data, 20)[0]
+          {
+            echo "===== STOCK ====="
 
-          page = 4096
+            if [ -s analysis/stock.config ]; then
+              grep -E \
+                '^CONFIG_(KALLSYMS|KALLSYMS_ALL|MODULES|DEBUG_INFO|DEBUG_INFO_BTF|BPF|SECURITY|SECURITYFS|SELINUX|PROC_FS)' \
+                analysis/stock.config \
+                || true
+            else
+              echo "STOCK CONFIG EMPTY"
+            fi
 
-          kernel_offset = page
-          kernel_pages = (kernel_size + page - 1) // page
+            echo ""
+            echo "===== GOOGLE GKI ====="
 
-          ramdisk_offset = kernel_offset + kernel_pages * page
-          ramdisk_pages = (ramdisk_size + page - 1) // page
+            grep -E \
+              '^CONFIG_(KALLSYMS|KALLSYMS_ALL|MODULES|DEBUG_INFO|DEBUG_INFO_BTF|BPF|SECURITY|SECURITYFS|SELINUX|PROC_FS)' \
+              analysis/google-gki_defconfig \
+              || true
 
-          ramdisk_end = ramdisk_offset + ramdisk_pages * page
+          } | tee analysis/important-configs.txt
 
-          print("Kernel offset :", kernel_offset)
-          print("Kernel size   :", kernel_size)
-          print("Kernel pages  :", kernel_pages)
-
-          print("")
-          print("Ramdisk offset:", ramdisk_offset)
-          print("Ramdisk size  :", ramdisk_size)
-          print("Ramdisk pages :", ramdisk_pages)
-
-          print("")
-          print("Ramdisk end   :", ramdisk_end)
-
-          print("")
-          print("Header size   :", header_size)
-
-          with open("analysis/layout.txt", "w") as f:
-              f.write(f"kernel_offset={kernel_offset}\n")
-              f.write(f"kernel_size={kernel_size}\n")
-              f.write(f"kernel_pages={kernel_pages}\n")
-              f.write(f"ramdisk_offset={ramdisk_offset}\n")
-              f.write(f"ramdisk_size={ramdisk_size}\n")
-              f.write(f"ramdisk_pages={ramdisk_pages}\n")
-              f.write(f"ramdisk_end={ramdisk_end}\n")
-              f.write(f"header_size={header_size}\n")
-          PY
-
-      - name: Create final report
+      - name: Create report
         run: |
           set -e
 
           {
             echo "========================================"
-            echo "PAD 7 STOCK BOOT STEP 4"
+            echo "PAD 7 STEP 5"
+            echo "STOCK CONFIG VS GOOGLE GKI"
             echo "========================================"
 
             echo ""
-            echo "=== BOOT HEADER ==="
-            cat analysis/boot-header.txt
-
-            echo ""
-            echo "=== KERNEL OFFSET ==="
-            cat analysis/kernel-offset.txt
-
-            echo ""
-            echo "=== BOOT LAYOUT ==="
-            cat analysis/layout.txt
-
-            echo ""
-            echo "=== STOCK KERNEL ==="
-            file analysis/stock-kernel
+            echo "STOCK KERNEL:"
+            stat -c%s analysis/stock-kernel
             sha256sum analysis/stock-kernel
 
             echo ""
-            echo "=== KERNEL VERSION ==="
-            cat analysis/kernel-version.txt || true
+            echo "STOCK CONFIG SIZE:"
+            stat -c%s analysis/stock.config
 
             echo ""
-            echo "=== IKCONFIG ==="
-            strings -a analysis/stock-kernel |
-              grep "IKCFG_ST" |
-              head -10 ||
-              echo "IKCONFIG NOT FOUND"
+            echo "STOCK CONFIG LINES:"
+            wc -l analysis/stock.config
+
+            echo ""
+            echo "GOOGLE GKI:"
+            cd google-kernel
+            git rev-parse HEAD
+            make -s kernelversion
+            cd ..
+
+            echo ""
+            echo "IMPORTANT CONFIGS:"
+            cat analysis/important-configs.txt
+
+            echo ""
+            echo "DIFF:"
+            cat analysis/google-vs-stock.diff
 
             echo ""
             echo "========================================"
-            echo "STEP 4 COMPLETE"
+            echo "STEP 5 COMPLETE"
             echo "========================================"
 
           } | tee analysis/FINAL-REPORT.txt
 
-      - name: Upload analysis
+      - name: Upload Step 5
         uses: actions/upload-artifact@v4
         with:
-          name: pad7-step4-boot-analysis
+          name: pad7-step5-stock-config
           path: analysis/
