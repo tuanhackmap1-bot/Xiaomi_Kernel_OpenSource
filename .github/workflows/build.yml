@@ -239,8 +239,7 @@ jobs:
             cp drivers/misc/Kconfig \
               drivers/misc/Kconfig.before-hwid
 
-            sed -i \
-              '/source "drivers\/misc\/hwid\/Kconfig"/d' \
+            sed -i '/source "drivers\/misc\/hwid\/Kconfig"/d' \
               drivers/misc/Kconfig
 
             echo "Removed missing HWID Kconfig reference."
@@ -257,8 +256,8 @@ jobs:
           fi
 
           echo "HWID Kconfig check passed."
-                - name: Load stock Pad 7 config
-          run: |
+      - name: Load stock Pad 7 config
+        run: |
           set -e
 
           mkdir -p out
