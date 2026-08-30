@@ -19,10 +19,16 @@ jobs:
         run: |
           set -e
 
+          cd "$GITHUB_WORKSPACE"
+
           echo "========================================"
           echo "       INSPECT KERNEL SOURCE"
           echo "========================================"
 
+          echo "Directory:"
+          pwd
+
+          echo ""
           echo "Commit:"
           git log -1 --oneline
 
