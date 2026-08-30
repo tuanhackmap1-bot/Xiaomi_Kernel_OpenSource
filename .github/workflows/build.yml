@@ -1,99 +1,110 @@
-name: Build Xiaomi Pad 7 Kernel
+name: Step 6 - Build Stock Kernel 6.1.138
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: read
+  push:
+    branches:
+      - uke-v-oss
 
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
 
     steps:
-      - name: Checkout Xiaomi UKE source
+      - name: Checkout official Xiaomi UKE
         uses: actions/checkout@v4
         with:
           repository: MiCode/Xiaomi_Kernel_OpenSource
           ref: 5712080a4b0c0b1a879e6d145c601c649ddaddfd
           fetch-depth: 1
-
-      - name: Install dependencies
+          
+      - name: Inspect HWID reference
         run: |
           set -e
 
-          sudo apt-get update
+          echo "COMMIT:"
+          git rev-parse HEAD
 
-          sudo apt-get install -y \
-            bc \
-            bison \
-            build-essential \
-            clang \
-            cpio \
-            flex \
-            libdw-dev \
-            libelf-dev \
-            libssl-dev \
-            lld \
-            llvm \
-            python3 \
-            rsync \
-            unzip \
-            wget \
-            xz-utils \
-            zstd
+          echo ""
+          echo "Kconfig line 525-540:"
+          nl -ba drivers/misc/Kconfig | sed -n '525,540p'
 
+          echo ""
+          echo "Search HWID:"
+          grep -Rni "hwid" drivers/misc/Kconfig drivers/misc/Makefile || true
+
+          echo ""
+          echo "Check HWID directory:"
+          if [ -d drivers/misc/hwid ]; then
+            echo "drivers/misc/hwid EXISTS"
+            find drivers/misc/hwid -maxdepth 2 -type f -print
+          else
+            echo "drivers/misc/hwid DOES NOT EXIST"
+          fi
       - name: Show source information
         run: |
           set -e
 
           echo "========================================"
-          echo "XIAOMI UKE SOURCE"
+          echo "XIAOMI KERNEL SOURCE"
           echo "========================================"
+
+          echo "Branch:"
+          git branch --show-current || true
 
           echo ""
           echo "Commit:"
           git rev-parse HEAD
 
           echo ""
-          echo "Kernel version:"
-          make -s kernelversion
-
-          echo ""
+          echo "Kernel Makefile version:"
           grep -E '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' Makefile
 
           echo ""
-          echo "Required stock target:"
-          echo "Xiaomi Pad 7"
+          echo "make kernelversion:"
+          make -s kernelversion
 
-      - name: Check missing HWID source
+      - name: Verify Xiaomi source
         run: |
           set -e
 
-          echo "========================================"
-          echo "CHECK HWID"
-          echo "========================================"
+          VERSION="$(make -s kernelversion)"
 
-          if [ -d drivers/misc/hwid ]; then
-            echo "HWID source exists."
-          else
-            echo "HWID source is missing."
+          echo "Xiaomi source version: $VERSION"
 
-            if grep -n 'drivers/misc/hwid/Kconfig' drivers/misc/Kconfig; then
-              cp drivers/misc/Kconfig drivers/misc/Kconfig.before-hwid
-
-              sed -i \
-                '/source "drivers\/misc\/hwid\/Kconfig"/d' \
-                drivers/misc/Kconfig
-
-              echo "Removed missing HWID Kconfig reference."
-            fi
+          if [ "$VERSION" != "6.1.68" ]; then
+            echo "Unexpected Xiaomi source version."
+            exit 1
           fi
 
-          echo ""
-          echo "Remaining HWID reference:"
-          grep -n 'drivers/misc/hwid/Kconfig' drivers/misc/Kconfig || true
+          echo "Xiaomi UKE source confirmed."
+
+      - name: Install build dependencies
+        run: |
+          set -e
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            git \
+            bc \
+            bison \
+            flex \
+            build-essential \
+            clang \
+            lld \
+            llvm \
+            libssl-dev \
+            libelf-dev \
+            libdw-dev \
+            dwarves \
+            python3 \
+            cpio \
+            rsync \
+            wget \
+            unzip \
+            xz-utils \
+            zstd
 
       - name: Download stock boot.img
         run: |
@@ -103,12 +114,11 @@ jobs:
             -O boot.img \
             "https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img"
 
-          echo ""
-          echo "boot.img size:"
+          echo "boot.img:"
           stat -c%s boot.img
 
           echo ""
-          echo "boot.img sha256:"
+          echo "SHA256:"
           sha256sum boot.img
 
       - name: Extract stock kernel
@@ -126,12 +136,12 @@ jobs:
             status=progress
 
           echo ""
-          echo "Stock kernel:"
-          file stock/kernel
-
-          echo ""
           echo "Stock kernel size:"
           stat -c%s stock/kernel
+
+          echo ""
+          echo "Stock kernel:"
+          file stock/kernel
 
       - name: Extract stock config
         run: |
@@ -145,16 +155,26 @@ jobs:
 
           ./extract-ikconfig \
             stock/kernel \
-            > stock.config
+            > stock.config \
+            2> stock-config-error.txt \
+            || true
 
-          test -s stock.config
-
-          echo "Stock config:"
-          wc -l stock.config
+          echo "Stock config size:"
+          stat -c%s stock.config
 
           echo ""
-          echo "Stock config kernel version:"
-          grep -E '^CONFIG_LOCALVERSION=' stock.config || true
+          echo "Stock config lines:"
+          wc -l stock.config
+
+          if [ ! -s stock.config ]; then
+            echo ""
+            echo "ERROR: Could not extract stock.config"
+            cat stock-config-error.txt || true
+            exit 1
+          fi
+
+          echo ""
+          echo "Stock config successfully extracted."
 
       - name: Save stock config
         run: |
@@ -165,43 +185,48 @@ jobs:
           cp stock.config \
             arch/arm64/configs/stock_pad7_defconfig
 
-          echo "Saved stock config."
+          echo "Stock config installed:"
+          wc -l arch/arm64/configs/stock_pad7_defconfig
 
-      - name: Inspect ABI and KMI setup
+      - name: Prepare compiler
         run: |
           set -e
 
           echo "========================================"
-          echo "ABI / KMI SETUP"
+          echo "COMPILER"
           echo "========================================"
 
-          echo ""
-          echo "Existing ABI files:"
-          find . \
-            -type f \
-            \( \
-              -name 'abi_symbollist.raw' \
-              -o -name 'abi_symbollist*' \
-              -o -name '*symbollist*' \
-            \) \
-            -print \
-            2>/dev/null \
-            | sort \
-            | head -200
+          clang --version
+          ld.lld --version
+
+      - name: Check missing HWID source
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "CHECK HWID SOURCE"
+          echo "========================================"
+
+          echo "Git submodules:"
+          git submodule status || true
 
           echo ""
-          echo "ABI references in source:"
-          grep -Rni \
-            -E 'abi_symbollist|symbollist|TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST' \
-            Makefile \
-            scripts \
-            kernel \
-            arch \
-            2>/dev/null \
-            | head -200 \
-            || true
+          echo "Git LFS:"
+          git lfs ls-files 2>/dev/null | grep -i hwid || true
 
-      - name: Prepare build directory
+          echo ""
+          echo "HWID references:"
+          git grep -n -i "drivers/misc/hwid" || true
+
+          echo ""
+          echo "HWID directory:"
+          if [ -d drivers/misc/hwid ]; then
+            find drivers/misc/hwid -maxdepth 2 -type f -print
+          else
+            echo "MISSING: drivers/misc/hwid"
+          fi
+
+      - name: Load stock Pad 7 config
         run: |
           set -e
 
@@ -218,58 +243,41 @@ jobs:
             olddefconfig
 
           echo ""
-          echo "Config generated successfully."
+          echo "Final config:"
+          grep -E \
+            '^CONFIG_(IKCONFIG|KALLSYMS|KALLSYMS_ALL|MODULES|BPF|BPF_SYSCALL|SECURITY|SECURITYFS|SECURITY_SELINUX)' \
+            out/.config \
+            || true
 
-      - name: Verify generated config
+      - name: Verify final kernel config
         run: |
           set -e
 
           echo "========================================"
-          echo "CONFIG CHECK"
+          echo "FINAL CONFIG CHECK"
           echo "========================================"
 
+          echo "CONFIG_ARM64:"
           grep '^CONFIG_ARM64=' out/.config || true
-          grep '^CONFIG_MODULES=' out/.config || true
-          grep '^CONFIG_KALLSYMS=' out/.config || true
-          grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
-          grep '^CONFIG_TRIM_UNUSED_KSYMS=' out/.config || true
-          grep '^CONFIG_UNUSED_KSYMS_WHITELIST=' out/.config || true
-
-      - name: Verify ABI whitelist before build
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "ABI WHITELIST CHECK"
-          echo "========================================"
-
-          if [ -f abi_symbollist.raw ]; then
-            echo "abi_symbollist.raw exists at source root."
-          elif [ -f out/abi_symbollist.raw ]; then
-            echo "out/abi_symbollist.raw exists."
-          else
-            echo "No abi_symbollist.raw currently exists."
-          fi
 
           echo ""
-          echo "Searching generated files:"
-          find out \
-            -type f \
-            \( \
-              -name 'abi_symbollist.raw' \
-              -o -name '*symbollist*' \
-            \) \
-            -print \
-            2>/dev/null \
-            | sort \
-            || true
+          echo "CONFIG_MODULES:"
+          grep '^CONFIG_MODULES=' out/.config || true
+
+          echo ""
+          echo "CONFIG_KALLSYMS:"
+          grep '^CONFIG_KALLSYMS=' out/.config || true
+
+          echo ""
+          echo "CONFIG_KALLSYMS_ALL:"
+          grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
 
       - name: Build kernel
         run: |
           set -e
 
           echo "========================================"
-          echo "BUILD KERNEL"
+          echo "BUILD STOCK KERNEL"
           echo "========================================"
 
           make \
@@ -287,7 +295,7 @@ jobs:
             STRIP=llvm-strip \
             Image
 
-      - name: Verify Image
+      - name: Check build output
         run: |
           set -e
 
@@ -295,55 +303,70 @@ jobs:
           echo "BUILD RESULT"
           echo "========================================"
 
-          test -f out/arch/arm64/boot/Image
+          if [ ! -f out/arch/arm64/boot/Image ]; then
+            echo "ERROR: Image was not produced."
+            exit 1
+          fi
 
           echo ""
           echo "Image:"
           ls -lh out/arch/arm64/boot/Image
 
           echo ""
-          echo "SHA256:"
+          echo "Image SHA256:"
           sha256sum out/arch/arm64/boot/Image
 
           echo ""
-          echo "File:"
+          echo "Image file:"
           file out/arch/arm64/boot/Image
 
-      - name: Create report
-        if: always()
+      - name: Create build report
         run: |
-          set +e
+          set -e
 
           mkdir -p report
 
           {
-            echo "XIAOMI PAD 7 KERNEL BUILD REPORT"
-            echo "================================"
+            echo "========================================"
+            echo "PAD 7 STOCK KERNEL BUILD REPORT"
+            echo "========================================"
+
             echo ""
             echo "SOURCE COMMIT:"
             git rev-parse HEAD
+
             echo ""
             echo "SOURCE KERNEL VERSION:"
             make -s kernelversion
+
             echo ""
             echo "STOCK CONFIG:"
-            sha256sum stock.config 2>/dev/null || true
+            wc -l stock.config
+            sha256sum stock.config
+
             echo ""
             echo "FINAL CONFIG:"
-            sha256sum out/.config 2>/dev/null || true
-            echo ""
-            echo "IMAGE:"
-            ls -lh out/arch/arm64/boot/Image 2>/dev/null || true
-            sha256sum out/arch/arm64/boot/Image 2>/dev/null || true
-          } | tee report/build-report.txt
+            sha256sum out/.config
 
-      - name: Upload artifacts
-        if: always()
+            echo ""
+            echo "BUILT IMAGE:"
+            ls -lh out/arch/arm64/boot/Image
+            sha256sum out/arch/arm64/boot/Image
+            file out/arch/arm64/boot/Image
+
+            echo ""
+            echo "========================================"
+            echo "STEP 6 COMPLETE"
+            echo "========================================"
+
+          } | tee report/FINAL-REPORT.txt
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pad7-kernel-build
+          name: pad7-step6-kernel-build
           path: |
             out/arch/arm64/boot/Image
             out/.config
             stock.config
-            report/build-report.txt
+            report/FINAL-REPORT.txt
