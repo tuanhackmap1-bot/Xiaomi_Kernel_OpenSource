@@ -1,10 +1,10 @@
-name: Build Xiaomi Pad 7 Kernel
+name: Analyze stock boot.img
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  analyze:
     runs-on: ubuntu-24.04
 
     steps:
@@ -13,295 +13,302 @@ jobs:
       # CHECKOUT
       # ============================================================
 
-      - name: Checkout kernel source
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          repository: MiCode/Xiaomi_Kernel_OpenSource
-          ref: uke-v-oss
           fetch-depth: 1
 
 
       # ============================================================
-      # SHOW SOURCE
+      # CHECK BOOT.IMG
       # ============================================================
 
-      - name: Check kernel source
+      - name: Check boot.img
         run: |
           set -e
 
           cd "$GITHUB_WORKSPACE"
 
           echo "========================================"
-          echo "       XIAOMI PAD 7 KERNEL"
+          echo "       STOCK BOOT.IMG ANALYSIS"
           echo "========================================"
 
-          echo "Commit:"
-          git log -1 --oneline
+          if [ ! -f boot.img ]; then
+            echo ""
+            echo "ERROR: boot.img NOT FOUND"
+            echo ""
+            echo "Put your stock boot.img in the repository root:"
+            echo ""
+            echo "boot.img"
+            echo ""
+            exit 1
+          fi
 
           echo ""
-          echo "Kernel version:"
-          make -s kernelversion
+          echo "boot.img found:"
+          ls -lh boot.img
 
           echo ""
-          echo "Repository:"
-          git remote -v
-
-          echo ""
-          echo "Source check complete"
+          echo "SHA256:"
+          sha256sum boot.img
 
 
       # ============================================================
-      # DEPENDENCIES
+      # INSTALL TOOLS
       # ============================================================
 
-      - name: Install dependencies
+      - name: Install analysis tools
         run: |
           set -e
 
-          sudo add-apt-repository universe
           sudo apt-get update
 
           sudo apt-get install -y \
-            bc \
-            bison \
-            build-essential \
-            ccache \
-            clang \
-            flex \
-            git \
-            lld \
-            llvm \
-            libelf-dev \
-            libssl-dev \
-            pahole \
-            pkg-config \
+            file \
+            binwalk \
+            cpio \
+            gzip \
+            lz4 \
+            xz-utils \
+            zstd \
             python3 \
-            rsync \
-            unzip \
-            zip
+            python3-pip \
+            unzip
 
 
       # ============================================================
-      # TOOLCHAIN
+      # FILE IDENTIFICATION
       # ============================================================
 
-      - name: Check LLVM toolchain
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "       LLVM TOOLCHAIN"
-          echo "========================================"
-
-          clang --version
-          echo ""
-          ld.lld --version
-
-
-      # ============================================================
-      # FIND DEFCONFIG
-      # ============================================================
-
-      - name: Inspect kernel configs
+      - name: Identify boot.img
         run: |
           set -e
 
           cd "$GITHUB_WORKSPACE"
 
           echo "========================================"
-          echo "       KERNEL CONFIGS"
+          echo "       FILE IDENTIFICATION"
           echo "========================================"
 
-          find arch/arm64/configs \
-            -maxdepth 1 \
-            -type f \
-            -name "*defconfig" \
-            -print | sort
+          file boot.img
 
           echo ""
-          echo "Checking GKI defconfig..."
-
-          test -f arch/arm64/configs/gki_defconfig
-
-          echo "gki_defconfig FOUND"
+          echo "First 256 bytes:"
+          xxd -l 256 boot.img || true
 
 
       # ============================================================
-      # CONFIGURE
+      # BOOT HEADER
       # ============================================================
 
-      - name: Configure kernel
-        run: |
-          set -e
-
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export LLVM=1
-          export LLVM_IAS=1
-
-          cd "$GITHUB_WORKSPACE"
-
-          echo "========================================"
-          echo "       CONFIGURE KERNEL"
-          echo "========================================"
-
-          rm -rf out
-          mkdir -p out
-
-          make \
-            O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            gki_defconfig
-
-          make \
-            O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            olddefconfig
-
-          echo ""
-          echo "Kernel version:"
-          make \
-            O=out \
-            ARCH=arm64 \
-            kernelversion
-
-          echo ""
-          echo "Config generated:"
-          test -f out/.config
-
-          echo "CONFIG OK"
-
-
-      # ============================================================
-      # BUILD KERNEL IMAGE
-      # ============================================================
-
-      - name: Build kernel Image
-        run: |
-          set -e
-
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export LLVM=1
-          export LLVM_IAS=1
-
-          cd "$GITHUB_WORKSPACE"
-
-          echo "========================================"
-          echo "       BUILD KERNEL IMAGE"
-          echo "========================================"
-
-          make \
-            -j"$(nproc)" \
-            O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            Image
-
-          echo ""
-          echo "========================================"
-          echo "       VERIFY IMAGE"
-          echo "========================================"
-
-          IMAGE="out/arch/arm64/boot/Image"
-
-          test -f "$IMAGE"
-
-          ls -lh "$IMAGE"
-
-          echo ""
-          echo "IMAGE BUILD SUCCESS"
-
-
-      # ============================================================
-      # BUILD DTBS
-      # ============================================================
-
-      - name: Build DTBs
-        run: |
-          set -e
-
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export LLVM=1
-          export LLVM_IAS=1
-
-          cd "$GITHUB_WORKSPACE"
-
-          echo "========================================"
-          echo "       BUILD DTBS"
-          echo "========================================"
-
-          make \
-            -j"$(nproc)" \
-            O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            dtbs
-
-          echo ""
-          echo "DTBS BUILD SUCCESS"
-
-
-      # ============================================================
-      # SHOW RESULT
-      # ============================================================
-
-      - name: Show build result
+      - name: Analyze Android boot header
         run: |
           set -e
 
           cd "$GITHUB_WORKSPACE"
 
           echo "========================================"
-          echo "       BUILD RESULT"
+          echo "       ANDROID BOOT HEADER"
           echo "========================================"
 
-          echo ""
-          echo "=== KERNEL VERSION ==="
+          python3 - <<'PY'
+          import struct
 
-          make \
-            O=out \
-            ARCH=arm64 \
-            kernelversion
+          f = open("boot.img", "rb")
+          data = f.read(4096)
+          f.close()
 
-          echo ""
-          echo "=== IMAGE ==="
+          print("Magic:", data[0:8])
 
-          ls -lh \
-            out/arch/arm64/boot/Image
+          if data[0:8] != b"ANDROID!":
+              print("WARNING: Android boot magic not found")
+              raise SystemExit(0)
 
-          echo ""
-          echo "=== DTB FILES ==="
+          kernel_size = struct.unpack_from("<I", data, 8)[0]
+          ramdisk_size = struct.unpack_from("<I", data, 16)[0]
+          second_size = struct.unpack_from("<I", data, 24)[0]
+          header_version = struct.unpack_from("<I", data, 40)[0]
 
-          find out/arch/arm64/boot/dts \
-            -type f \
-            -name "*.dtb" \
-            -print | head -100 || true
+          print("Kernel size :", kernel_size)
+          print("Ramdisk size:", ramdisk_size)
+          print("Second size :", second_size)
+          print("Header ver. :", header_version)
 
-          echo ""
-          echo "========================================"
-          echo "       BUILD COMPLETED"
-          echo "========================================"
+          if header_version >= 3:
+              os_version = struct.unpack_from("<I", data, 44)[0]
+              print("OS version field:", hex(os_version))
+          PY
 
 
       # ============================================================
-      # UPLOAD
+      # SEARCH KERNEL STRING
       # ============================================================
 
-      - name: Upload kernel artifacts
+      - name: Search kernel strings
+        run: |
+          set -e
+
+          cd "$GITHUB_WORKSPACE"
+
+          echo "========================================"
+          echo "       KERNEL STRING SEARCH"
+          echo "========================================"
+
+          strings -a boot.img \
+            | grep -E \
+            'Linux version|6\.1\.|android14|g0c3d559bcd85|clang|LLVM|Xiaomi|xiaomi|uke' \
+            | head -200 \
+            || true
+
+
+      # ============================================================
+      # EXTRACT POSSIBLE KERNEL
+      # ============================================================
+
+      - name: Extract kernel payload
+        run: |
+          set -e
+
+          cd "$GITHUB_WORKSPACE"
+
+          mkdir -p analysis
+
+          echo "========================================"
+          echo "       SEARCH KERNEL PAYLOAD"
+          echo "========================================"
+
+          binwalk boot.img || true
+
+          echo ""
+          echo "Searching for compressed kernel signatures..."
+
+          binwalk -R $'\x1f\x8b\x08' boot.img || true
+          binwalk -R $'\x28\xb5\x2f\xfd' boot.img || true
+          binwalk -R $'\x02\x21\x4c\x18' boot.img || true
+
+
+      # ============================================================
+      # KERNEL BINARY STRING REPORT
+      # ============================================================
+
+      - name: Generate kernel report
+        run: |
+          set -e
+
+          cd "$GITHUB_WORKSPACE"
+
+          echo "========================================"
+          echo "       KERNEL REPORT"
+          echo "========================================"
+
+          {
+            echo "STOCK BOOT IMAGE"
+            echo "================"
+            echo ""
+
+            echo "File:"
+            ls -lh boot.img
+
+            echo ""
+            echo "SHA256:"
+            sha256sum boot.img
+
+            echo ""
+            echo "Kernel strings:"
+            strings -a boot.img \
+              | grep -E \
+              'Linux version|6\.1\.|android14|g0c3d559bcd85|clang|LLVM|Xiaomi|xiaomi|uke' \
+              | head -200 \
+              || true
+
+            echo ""
+            echo "Potential symbols:"
+            strings -a boot.img \
+              | grep -E \
+              'kallsyms|CONFIG_|BTF|VMLINUX|__VMLINUX_SYMBOL' \
+              | head -200 \
+              || true
+
+          } | tee analysis/kernel-report.txt
+
+
+      # ============================================================
+      # SEARCH KALLSYMS / BTF
+      # ============================================================
+
+      - name: Check kallsyms and BTF
+        run: |
+          set -e
+
+          cd "$GITHUB_WORKSPACE"
+
+          echo "========================================"
+          echo "       KALLSYMS / BTF CHECK"
+          echo "========================================"
+
+          echo ""
+          echo "kallsyms strings:"
+          strings -a boot.img \
+            | grep -Ei 'kallsyms|kallsyms_lookup_name|kallsyms_on_each_symbol' \
+            | head -100 \
+            || true
+
+          echo ""
+          echo "BTF strings:"
+          strings -a boot.img \
+            | grep -Ei 'BTF|BTF_MAGIC|__BTF' \
+            | head -100 \
+            || true
+
+          {
+            echo "=== KALLSYMS ==="
+            strings -a boot.img \
+              | grep -Ei 'kallsyms|kallsyms_lookup_name|kallsyms_on_each_symbol' \
+              || true
+
+            echo ""
+            echo "=== BTF ==="
+            strings -a boot.img \
+              | grep -Ei 'BTF|BTF_MAGIC|__BTF' \
+              || true
+          } > analysis/symbol-report.txt
+
+
+      # ============================================================
+      # FINAL REPORT
+      # ============================================================
+
+      - name: Final analysis
+        run: |
+          set -e
+
+          cd "$GITHUB_WORKSPACE"
+
+          echo ""
+          echo "========================================"
+          echo "       ANALYSIS COMPLETE"
+          echo "========================================"
+
+          echo ""
+          echo "Reports:"
+          find analysis -type f -maxdepth 2 -print
+
+          echo ""
+          echo "Kernel report:"
+          cat analysis/kernel-report.txt
+
+          echo ""
+          echo "Symbol report:"
+          cat analysis/symbol-report.txt
+
+
+      # ============================================================
+      # UPLOAD REPORT
+      # ============================================================
+
+      - name: Upload analysis
         uses: actions/upload-artifact@v4
         with:
-          name: xiaomi-pad7-kernel
-          if-no-files-found: warn
+          name: boot-img-analysis
           path: |
-            out/arch/arm64/boot/Image
-            out/arch/arm64/boot/Image.gz
-            out/arch/arm64/boot/dts/**/*.dtb
-            out/arch/arm64/boot/dts/**/*.dtbo
+            analysis/
