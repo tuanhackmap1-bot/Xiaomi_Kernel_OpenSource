@@ -11,9 +11,11 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout Xiaomi kernel source
+      - name: Checkout official Xiaomi UKE
         uses: actions/checkout@v4
         with:
+          repository: MiCode/Xiaomi_Kernel_OpenSource
+          ref: uke-v-oss
           fetch-depth: 1
 
       - name: Show source information
@@ -39,25 +41,20 @@ jobs:
           echo "make kernelversion:"
           make -s kernelversion
 
-      - name: Verify kernel version
+      - name: Verify Xiaomi source
         run: |
           set -e
 
           VERSION="$(make -s kernelversion)"
 
-          echo "Detected kernel version: $VERSION"
+          echo "Xiaomi source version: $VERSION"
 
-          if [ "$VERSION" != "6.1.138" ]; then
-            echo ""
-            echo "ERROR: This source is NOT kernel 6.1.138."
-            echo "Detected: $VERSION"
-            echo "Required: 6.1.138"
-            echo ""
-            echo "BUILD STOPPED."
+          if [ "$VERSION" != "6.1.68" ]; then
+            echo "Unexpected Xiaomi source version."
             exit 1
           fi
 
-          echo "Kernel version OK: 6.1.138"
+          echo "Xiaomi UKE source confirmed."
 
       - name: Install build dependencies
         run: |
