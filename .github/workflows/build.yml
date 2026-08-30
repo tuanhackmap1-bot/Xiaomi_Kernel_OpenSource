@@ -176,11 +176,7 @@ jobs:
           clang --version
           ld.lld --version
 
-      - name: Clean previous build
-        run: |
-          set -e
-
-          make mrproper
+      
 
       - name: Load stock Pad 7 config
         run: |
