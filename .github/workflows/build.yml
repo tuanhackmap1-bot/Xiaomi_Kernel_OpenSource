@@ -279,7 +279,30 @@ jobs:
             '^CONFIG_(IKCONFIG|KALLSYMS|KALLSYMS_ALL|MODULES|BPF|BPF_SYSCALL|SECURITY|SECURITYFS|SECURITY_SELINUX)' \
             out/.config \
             || true
+      - name: Disable KMI whitelist requirement
+        run: |
+          set -e
 
+          echo "Checking ABI/KMI settings..."
+
+          if grep -q '^CONFIG_UNUSED_KSYMS_WHITELIST=' out/.config; then
+            echo "Removing CONFIG_UNUSED_KSYMS_WHITELIST"
+            sed -i '/^CONFIG_UNUSED_KSYMS_WHITELIST=/d' out/.config
+          fi
+
+          if grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y' out/.config; then
+            echo "Disabling CONFIG_TRIM_UNUSED_KSYMS"
+            sed -i \
+              's/^CONFIG_TRIM_UNUSED_KSYMS=y/# CONFIG_TRIM_UNUSED_KSYMS is not set/' \
+              out/.config
+          fi
+
+          echo ""
+          echo "Final ABI/KMI settings:"
+          grep -E \
+            '^CONFIG_(UNUSED_KSYMS_WHITELIST|TRIM_UNUSED_KSYMS)' \
+            out/.config \
+            || true
       - name: Verify final kernel config
         run: |
           set -e
@@ -303,95 +326,47 @@ jobs:
           echo "CONFIG_KALLSYMS_ALL:"
           grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
 
-      - name: Build kernel
+      - name: Diagnose ABI KMI whitelist
         run: |
           set -e
 
           echo "========================================"
-          echo "BUILD STOCK KERNEL"
+          echo "ABI / KMI DIAGNOSTIC"
           echo "========================================"
 
-          make \
-            -j"$(nproc)" \
-            O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            Image
+          echo ""
+          echo "ABI whitelist files:"
+          find . \
+            -maxdepth 3 \
+            -type f \
+            \( -name 'abi_symbollist*' -o -name '*symbollist*' \) \
+            -print \
+            2>/dev/null || true
 
-      - name: Check build output
-        run: |
-          set -e
+          echo ""
+          echo "KMI / ABI config:"
+          grep -E \
+            'CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST|MODULES)' \
+            out/.config \
+            || true
 
+          echo ""
+          echo "Makefile ABI references:"
+          grep -Rni \
+            -E 'abi_symbollist|UNUSED_KSYMS_WHITELIST|TRIM_UNUSED_KSYMS' \
+            Makefile scripts kernel \
+            2>/dev/null \
+            | head -100 \
+            || true
+
+          echo ""
           echo "========================================"
-          echo "BUILD RESULT"
+          echo "ABI DIAGNOSTIC COMPLETE"
           echo "========================================"
 
-          if [ ! -f out/arch/arm64/boot/Image ]; then
-            echo "ERROR: Image was not produced."
-            exit 1
-          fi
+      
 
-          echo ""
-          echo "Image:"
-          ls -lh out/arch/arm64/boot/Image
-
-          echo ""
-          echo "Image SHA256:"
-          sha256sum out/arch/arm64/boot/Image
-
-          echo ""
-          echo "Image file:"
-          file out/arch/arm64/boot/Image
-
-      - name: Create build report
-        run: |
-          set -e
-
-          mkdir -p report
-
-          {
-            echo "========================================"
-            echo "PAD 7 STOCK KERNEL BUILD REPORT"
-            echo "========================================"
-
-            echo ""
-            echo "SOURCE COMMIT:"
-            git rev-parse HEAD
-
-            echo ""
-            echo "SOURCE KERNEL VERSION:"
-            make -s kernelversion
-
-            echo ""
-            echo "STOCK CONFIG:"
-            wc -l stock.config
-            sha256sum stock.config
-
-            echo ""
-            echo "FINAL CONFIG:"
-            sha256sum out/.config
-
-            echo ""
-            echo "BUILT IMAGE:"
-            ls -lh out/arch/arm64/boot/Image
-            sha256sum out/arch/arm64/boot/Image
-            file out/arch/arm64/boot/Image
-
-            echo ""
-            echo "========================================"
-            echo "STEP 6 COMPLETE"
-            echo "========================================"
-
-          } | tee report/FINAL-REPORT.txt
-
+     
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
