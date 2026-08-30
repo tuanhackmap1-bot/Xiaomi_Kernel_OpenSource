@@ -13,12 +13,27 @@ jobs:
       # CHECKOUT
       # ============================================================
 
-      - name: Checkout kernel source
-        uses: actions/checkout@v4
-        with:
-          repository: MiCode/Xiaomi_Kernel_OpenSource
-          ref: uke-v-oss
-          fetch-depth: 1
+      - name: CHECK KERNEL SOURCE
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "       KERNEL SOURCE"
+          echo "========================================"
+
+          echo "Commit:"
+          git log -1 --oneline
+
+          echo ""
+          echo "Kernel version:"
+          make -s kernelversion
+
+          echo ""
+          echo "Branch:"
+          git branch --show-current
+
+          echo ""
+          echo "Source check complete"
           
       - name: FIND REMOTE KERNEL 6.1.138
         run: |
