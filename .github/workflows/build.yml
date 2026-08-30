@@ -1,4 +1,4 @@
-name: Compare Google GKI 6.1.138
+name: Step 3 - Stock Config vs Google GKI 6.1.138
 
 on:
   workflow_dispatch:
@@ -8,24 +8,238 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Check Google GKI tag
+
+      # ============================================================
+      # 1. DOWNLOAD STOCK BOOT
+      # ============================================================
+
+      - name: Download stock boot.img
         run: |
           set -e
 
           echo "========================================"
-          echo "GOOGLE GKI 6.1.138"
+          echo "DOWNLOAD STOCK PAD 7 BOOT"
           echo "========================================"
 
-          git ls-remote \
-            https://android.googlesource.com/kernel/common.git \
-            refs/tags/android14-6.1.138_r00
+          wget -q --show-progress \
+            -O boot.img \
+            https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img
 
-      - name: Clone Google kernel
+          echo ""
+          echo "boot.img:"
+          ls -lh boot.img
+
+          echo ""
+          echo "SHA256:"
+          sha256sum boot.img
+
+          EXPECTED="22f5e87ea6764e22bf191182d9dcffb0f423af53853e0f70dc0c278c94cb129a"
+          ACTUAL="$(sha256sum boot.img | awk '{print $1}')"
+
+          test "$ACTUAL" = "$EXPECTED"
+
+          echo "SHA256 OK"
+
+
+      # ============================================================
+      # 2. INSTALL TOOLS
+      # ============================================================
+
+      - name: Install tools
+        run: |
+          set -e
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            git \
+            wget \
+            binutils \
+            file \
+            xz-utils \
+            cpio \
+            bzip2 \
+            gzip \
+            lz4 \
+            zstd \
+            python3
+
+
+      # ============================================================
+      # 3. EXTRACT STOCK KERNEL
+      # ============================================================
+
+      - name: Extract stock kernel payload
+        run: |
+          set -e
+
+          mkdir -p stock analysis
+
+          echo "========================================"
+          echo "EXTRACT STOCK KERNEL"
+          echo "========================================"
+
+          KERNEL_SIZE=35432960
+          HEADER_SIZE=4096
+
+          dd \
+            if=boot.img \
+            of=stock/kernel.payload \
+            bs=1 \
+            skip=$HEADER_SIZE \
+            count=$KERNEL_SIZE \
+            status=progress
+
+          ACTUAL_SIZE="$(stat -c%s stock/kernel.payload)"
+
+          echo ""
+          echo "Expected: $KERNEL_SIZE"
+          echo "Actual:   $ACTUAL_SIZE"
+
+          test "$ACTUAL_SIZE" = "$KERNEL_SIZE"
+
+          echo ""
+          echo "Kernel payload:"
+          file stock/kernel.payload
+
+          echo ""
+          echo "Kernel SHA256:"
+          sha256sum stock/kernel.payload
+
+
+      # ============================================================
+      # 4. CHECK STOCK KERNEL VERSION
+      # ============================================================
+
+      - name: Verify stock kernel version
         run: |
           set -e
 
           echo "========================================"
-          echo "CLONE GOOGLE KERNEL"
+          echo "STOCK KERNEL VERSION"
+          echo "========================================"
+
+          strings -a stock/kernel.payload |
+            grep -E \
+            '6\.1\.138-android14-11-g0c3d559bcd85-ab14529422' \
+            | head -20 \
+            | tee analysis/stock-version.txt || true
+
+          if grep -q \
+            '6\.1\.138-android14-11-g0c3d559bcd85-ab14529422' \
+            analysis/stock-version.txt; then
+
+            echo "STOCK KERNEL VERSION VERIFIED"
+
+          else
+
+            echo "WARNING: exact kernel string not found"
+
+          fi
+
+
+      # ============================================================
+      # 5. TRY EXTRACT EMBEDDED STOCK CONFIG
+      # ============================================================
+
+      - name: Extract stock IKCONFIG
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "EXTRACT STOCK IKCONFIG"
+          echo "========================================"
+
+          python3 - <<'PY'
+          import re
+
+          data = open("stock/kernel.payload", "rb").read()
+
+          markers = [
+              b"IKCFG_ST",
+              b"CONFIG_",
+          ]
+
+          for marker in markers:
+              positions = [m.start() for m in re.finditer(re.escape(marker), data)]
+              print(marker.decode(errors="ignore"), "count:", len(positions))
+
+              if positions:
+                  print("first offsets:", positions[:20])
+          PY
+
+          echo ""
+
+          if grep -a -q "IKCFG_ST" stock/kernel.payload; then
+            echo "Embedded IKCONFIG marker FOUND"
+          else
+            echo "Embedded IKCONFIG marker NOT FOUND"
+          fi
+
+
+      # ============================================================
+      # 6. USE LINUX EXTRACT-IKCONFIG SCRIPT
+      # ============================================================
+
+      - name: Get extract-ikconfig script
+        run: |
+          set -e
+
+          wget -q \
+            -O extract-ikconfig \
+            https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-ikconfig
+
+          chmod +x extract-ikconfig
+
+          echo "extract-ikconfig ready"
+
+
+      - name: Extract stock config
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "STOCK CONFIG EXTRACTION"
+          echo "========================================"
+
+          if ./extract-ikconfig stock/kernel.payload \
+              > stock/stock.config 2>stock/ikconfig-error.txt; then
+
+            echo "STOCK CONFIG FOUND"
+
+            test -s stock/stock.config
+
+            echo ""
+            echo "Config lines:"
+            wc -l stock/stock.config
+
+            echo ""
+            echo "First lines:"
+            head -30 stock/stock.config
+
+          else
+
+            echo "STOCK CONFIG NOT EMBEDDED"
+
+            touch stock/stock.config
+
+            echo ""
+            echo "extract-ikconfig output:"
+            cat stock/ikconfig-error.txt || true
+
+          fi
+
+
+      # ============================================================
+      # 7. CLONE GOOGLE GKI 6.1.138
+      # ============================================================
+
+      - name: Clone Google GKI 6.1.138
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "GOOGLE ANDROID 14 GKI 6.1.138"
           echo "========================================"
 
           git clone \
@@ -38,178 +252,296 @@ jobs:
 
           echo ""
           echo "Commit:"
-          git log -1 --oneline
-
-          echo ""
-          echo "Commit SHA:"
           git rev-parse HEAD
 
           echo ""
-          echo "Kernel version:"
+          echo "Version:"
           make -s kernelversion
-
-      - name: Inspect Google tree
-        run: |
-          set -e
-
-          cd google-kernel
-
-          echo "========================================"
-          echo "GOOGLE TREE"
-          echo "========================================"
 
           echo ""
           echo "Tag:"
           git describe --tags --always
 
-          echo ""
-          echo "Kernel version:"
-          make -s kernelversion
 
-          echo ""
-          echo "ARM64 configs:"
-          find arch/arm64/configs \
-            -maxdepth 1 \
-            -type f \
-            | sort \
-            | grep -E 'gki|defconfig' \
-            | head -100 || true
+      # ============================================================
+      # 8. SAVE GOOGLE GKI CONFIG
+      # ============================================================
 
-          echo ""
-          echo "Build configs:"
-          find . \
-            -maxdepth 3 \
-            -name 'build.config*' \
-            | sort \
-            | head -100 || true
-
-      - name: Check GKI config
+      - name: Prepare Google GKI config
         run: |
           set -e
 
-          cd google-kernel
-
           echo "========================================"
-          echo "GKI CONFIG"
+          echo "GOOGLE GKI CONFIG"
           echo "========================================"
 
-          if [ -f arch/arm64/configs/gki_defconfig ]; then
-            echo ""
-            echo "KALLSYMS:"
-            grep -E '^CONFIG_KALLSYMS' \
-              arch/arm64/configs/gki_defconfig || true
+          if [ -f google-kernel/arch/arm64/configs/gki_defconfig ]; then
 
-            echo ""
-            echo "DEBUG INFO:"
-            grep -E '^CONFIG_DEBUG_INFO' \
-              arch/arm64/configs/gki_defconfig || true
+            cp \
+              google-kernel/arch/arm64/configs/gki_defconfig \
+              analysis/google-gki_defconfig
 
-            echo ""
-            echo "MODULES:"
-            grep -E '^CONFIG_MODULES' \
-              arch/arm64/configs/gki_defconfig || true
+            echo "gki_defconfig found"
+
+            wc -l analysis/google-gki_defconfig
+
           else
-            echo "gki_defconfig not found"
+
+            echo "ERROR: gki_defconfig not found"
+            exit 1
+
           fi
 
-      - name: Check kernel source symbols
+
+      # ============================================================
+      # 9. NORMALIZE STOCK CONFIG
+      # ============================================================
+
+      - name: Normalize stock config
         run: |
           set -e
 
-          cd google-kernel
-
           echo "========================================"
-          echo "KERNEL SOURCE SYMBOLS"
+          echo "NORMALIZE CONFIGS"
           echo "========================================"
 
-          echo ""
-          echo "kallsyms:"
-          grep -R \
-            -E 'kallsyms_lookup_name|kallsyms_on_each_symbol' \
-            kernel include \
-            2>/dev/null \
-            | head -100 || true
+          if [ -s stock/stock.config ]; then
+
+            sed \
+              -E \
+              's/[[:space:]]+$//' \
+              stock/stock.config \
+              | grep '^CONFIG_' \
+              | sort \
+              > analysis/stock.config.sorted || true
+
+          else
+
+            echo "No embedded stock config available"
+
+            touch analysis/stock.config.sorted
+
+          fi
+
+          grep '^CONFIG_' \
+            analysis/google-gki_defconfig \
+            | sort \
+            > analysis/google-gki.config.sorted
 
           echo ""
-          echo "securityfs:"
-          grep -R \
-            -E 'securityfs|security_inode' \
-            fs security include \
-            2>/dev/null \
-            | head -100 || true
+          echo "Stock config lines:"
+          wc -l analysis/stock.config.sorted
 
-          echo ""
-          echo "proc:"
-          grep -R \
-            -E 'proc_create|proc_remove' \
-            fs include \
-            2>/dev/null \
-            | head -100 || true
+          echo "Google config lines:"
+          wc -l analysis/google-gki.config.sorted
 
-      - name: Create report
+
+      # ============================================================
+      # 10. CREATE CONFIG DIFF
+      # ============================================================
+
+      - name: Create config diff
         run: |
           set -e
 
-          mkdir -p analysis
+          echo "========================================"
+          echo "CREATE CONFIG DIFF"
+          echo "========================================"
 
-          echo "========================================" > analysis/google-gki-report.txt
-          echo "GOOGLE ANDROID 14 GKI 6.1.138" >> analysis/google-gki-report.txt
-          echo "========================================" >> analysis/google-gki-report.txt
+          if [ -s analysis/stock.config.sorted ]; then
 
-          echo "" >> analysis/google-gki-report.txt
-          echo "REMOTE TAG:" >> analysis/google-gki-report.txt
+            diff -u \
+              analysis/google-gki.config.sorted \
+              analysis/stock.config.sorted \
+              > analysis/google-vs-stock.config.diff \
+              || true
 
-          git ls-remote \
-            https://android.googlesource.com/kernel/common.git \
-            refs/tags/android14-6.1.138_r00 \
-            >> analysis/google-gki-report.txt
+            echo ""
+            echo "DIFF CREATED"
+
+            wc -l analysis/google-vs-stock.config.diff
+
+          else
+
+            echo "Stock embedded config unavailable."
+
+            cat > analysis/google-vs-stock.config.diff <<'EOF'
+STOCK CONFIG WAS NOT EMBEDDED IN KERNEL PAYLOAD.
+
+A config diff cannot be generated from boot.img alone.
+
+The kernel payload itself is still valid and was extracted successfully.
+EOF
+
+          fi
+
+
+      # ============================================================
+      # 11. IMPORTANT CONFIG COMPARISON
+      # ============================================================
+
+      - name: Compare important configs
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "IMPORTANT CONFIG COMPARISON"
+          echo "========================================"
+
+          IMPORTANT='
+          CONFIG_KALLSYMS
+          CONFIG_KALLSYMS_ALL
+          CONFIG_KALLSYMS_BASE_RELATIVE
+          CONFIG_KALLSYMS_ABSOLUTE_PERCPU
+          CONFIG_DEBUG_INFO
+          CONFIG_DEBUG_INFO_DWARF4
+          CONFIG_DEBUG_INFO_DWARF5
+          CONFIG_DEBUG_INFO_BTF
+          CONFIG_DEBUG_INFO_BTF_MODULES
+          CONFIG_MODULES
+          CONFIG_MODULE_UNLOAD
+          CONFIG_KPROBES
+          CONFIG_BPF
+          CONFIG_BPF_SYSCALL
+          CONFIG_SECURITY
+          CONFIG_SECURITY_SELINUX
+          CONFIG_SECURITYFS
+          CONFIG_PROC_FS
+          '
+
+          echo ""
+          echo "=== GOOGLE GKI ==="
+
+          for c in $IMPORTANT; do
+            grep -E "^${c}([= ]|$)" \
+              analysis/google-gki_defconfig \
+              || true
+          done
+
+          echo ""
+          echo "=== STOCK ==="
+
+          if [ -s stock/stock.config ]; then
+
+            for c in $IMPORTANT; do
+              grep -E "^${c}([= ]|$)" \
+                stock/stock.config \
+                || true
+            done
+
+          else
+
+            echo "STOCK CONFIG NOT AVAILABLE"
+
+          fi
+
+
+      # ============================================================
+      # 12. COMPARE IMPORTANT SYMBOLS
+      # ============================================================
+
+      - name: Compare source symbols
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "GOOGLE GKI SOURCE SYMBOLS"
+          echo "========================================"
 
           cd google-kernel
 
-          echo "" >> ../analysis/google-gki-report.txt
-          echo "LOCAL COMMIT:" >> ../analysis/google-gki-report.txt
-          git rev-parse HEAD >> ../analysis/google-gki-report.txt
-
-          echo "" >> ../analysis/google-gki-report.txt
-          echo "DESCRIPTION:" >> ../analysis/google-gki-report.txt
-          git log -1 --oneline >> ../analysis/google-gki-report.txt
-
-          echo "" >> ../analysis/google-gki-report.txt
-          echo "KERNEL VERSION:" >> ../analysis/google-gki-report.txt
-          make -s kernelversion >> ../analysis/google-gki-report.txt
-
-          echo "" >> ../analysis/google-gki-report.txt
-          echo "TAG:" >> ../analysis/google-gki-report.txt
-          git describe --tags --always >> ../analysis/google-gki-report.txt
-
-          echo "" >> ../analysis/google-gki-report.txt
-          echo "GKI KALLSYMS CONFIG:" >> ../analysis/google-gki-report.txt
-          grep -E '^CONFIG_KALLSYMS' \
-            arch/arm64/configs/gki_defconfig \
-            >> ../analysis/google-gki-report.txt || true
-
-          echo "" >> ../analysis/google-gki-report.txt
-          echo "GKI DEBUG INFO CONFIG:" >> ../analysis/google-gki-report.txt
-          grep -E '^CONFIG_DEBUG_INFO' \
-            arch/arm64/configs/gki_defconfig \
-            >> ../analysis/google-gki-report.txt || true
-
-          echo "" >> ../analysis/google-gki-report.txt
-          echo "GKI MODULE CONFIG:" >> ../analysis/google-gki-report.txt
-          grep -E '^CONFIG_MODULES' \
-            arch/arm64/configs/gki_defconfig \
-            >> ../analysis/google-gki-report.txt || true
-
-          echo "" >> ../analysis/google-gki-report.txt
-          echo "REPORT COMPLETE" >> ../analysis/google-gki-report.txt
+          grep -R \
+            -n \
+            -E \
+            'kallsyms_lookup_name|kallsyms_on_each_symbol|securityfs|proc_create|register_chrdev|misc_register' \
+            kernel fs security include \
+            2>/dev/null \
+            | head -300 \
+            > ../analysis/google-important-symbols.txt \
+            || true
 
           cd ..
 
-          echo ""
-          cat analysis/google-gki-report.txt
+          cat analysis/google-important-symbols.txt || true
 
-      - name: Upload report
+
+      # ============================================================
+      # 13. CREATE FINAL REPORT
+      # ============================================================
+
+      - name: Create final report
+        run: |
+          set -e
+
+          {
+            echo "========================================"
+            echo "XIAOMI PAD 7 / UKE"
+            echo "STEP 3 CONFIG COMPARISON"
+            echo "========================================"
+
+            echo ""
+            echo "=== STOCK BOOT SHA256 ==="
+            sha256sum boot.img
+
+            echo ""
+            echo "=== STOCK KERNEL PAYLOAD ==="
+            stat -c%s stock/kernel.payload
+            sha256sum stock/kernel.payload
+            file stock/kernel.payload
+
+            echo ""
+            echo "=== STOCK KERNEL VERSION ==="
+            cat analysis/stock-version.txt || true
+
+            echo ""
+            echo "=== STOCK IKCONFIG STATUS ==="
+
+            if [ -s stock/stock.config ]; then
+              echo "EMBEDDED STOCK CONFIG FOUND"
+              wc -l stock/stock.config
+            else
+              echo "NO EMBEDDED STOCK CONFIG"
+            fi
+
+            echo ""
+            echo "=== GOOGLE GKI ==="
+            cd google-kernel
+            echo "Commit:"
+            git rev-parse HEAD
+            echo ""
+            echo "Version:"
+            make -s kernelversion
+            echo ""
+            echo "Tag:"
+            git describe --tags --always
+            cd ..
+
+            echo ""
+            echo "=== GOOGLE GKI CONFIG ==="
+            cat analysis/google-gki_defconfig
+
+            echo ""
+            echo "=== CONFIG DIFF ==="
+            cat analysis/google-vs-stock.config.diff
+
+            echo ""
+            echo "=== GOOGLE IMPORTANT SYMBOLS ==="
+            cat analysis/google-important-symbols.txt || true
+
+            echo ""
+            echo "========================================"
+            echo "STEP 3 COMPLETE"
+            echo "========================================"
+
+          } | tee analysis/FINAL-REPORT.txt
+
+
+      # ============================================================
+      # 14. UPLOAD EVERYTHING
+      # ============================================================
+
+      - name: Upload analysis
         uses: actions/upload-artifact@v4
         with:
-          name: google-gki-6.1.138-report
-          path: analysis/google-gki-report.txt
+          name: pad7-step3-stock-vs-gki-6.1.138
+          path: analysis/
