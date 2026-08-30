@@ -18,29 +18,7 @@ jobs:
           ref: 5712080a4b0c0b1a879e6d145c601c649ddaddfd
           fetch-depth: 1
           
-      - name: Inspect HWID reference
-        run: |
-          set -e
-
-          echo "COMMIT:"
-          git rev-parse HEAD
-
-          echo ""
-          echo "Kconfig line 525-540:"
-          nl -ba drivers/misc/Kconfig | sed -n '525,540p'
-
-          echo ""
-          echo "Search HWID:"
-          grep -Rni "hwid" drivers/misc/Kconfig drivers/misc/Makefile || true
-
-          echo ""
-          echo "Check HWID directory:"
-          if [ -d drivers/misc/hwid ]; then
-            echo "drivers/misc/hwid EXISTS"
-            find drivers/misc/hwid -maxdepth 2 -type f -print
-          else
-            echo "drivers/misc/hwid DOES NOT EXIST"
-          fi
+      
       - name: Show source information
         run: |
           set -e
