@@ -251,9 +251,7 @@ jobs:
           echo ""
           echo "Checking Kconfig reference:"
 
-          if grep -n \
-            'drivers/misc/hwid/Kconfig' \
-            drivers/misc/Kconfig; then
+          if grep -n 'drivers/misc/hwid/Kconfig' drivers/misc/Kconfig; then
             echo "ERROR: HWID Kconfig reference still exists."
             exit 1
           fi
