@@ -1,29 +1,26 @@
-name: Step 6 - Find and Build Stock Kernel 6.1.138
+name: Step 6 - Find Xiaomi Kernel 6.1.138
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - uke-v-oss
 
 jobs:
-  build:
+  find:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout official Xiaomi UKE source
+      - name: Checkout official Xiaomi repository
         uses: actions/checkout@v4
         with:
           repository: MiCode/Xiaomi_Kernel_OpenSource
           ref: uke-v-oss
           fetch-depth: 0
 
-      - name: Show source information
+      - name: Check current kernel
         run: |
           set -e
 
           echo "========================================"
-          echo "OFFICIAL XIAOMI UKE SOURCE"
+          echo "CURRENT XIAOMI UKE SOURCE"
           echo "========================================"
 
           echo ""
@@ -44,392 +41,27 @@ jobs:
             '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' \
             Makefile
 
-      - name: Find kernel 6.1.138 source
+      - name: Search remote 6.1.138
         run: |
           set -e
 
           echo "========================================"
-          echo "FIND KERNEL 6.1.138"
+          echo "SEARCH REMOTE 6.1.138"
           echo "========================================"
 
           echo ""
-          echo "Current commit:"
-          git rev-parse HEAD
-
-          echo ""
-          echo "Current kernel:"
-          make -s kernelversion
-
-          echo ""
-          echo "Remote branches:"
+          echo "REMOTE BRANCHES:"
           git ls-remote --heads origin
 
           echo ""
-          echo "Remote tags containing 6.1.138:"
-          git ls-remote --tags origin | grep '6.1.138' || true
+          echo "REMOTE TAGS:"
+          git ls-remote --tags origin
 
           echo ""
-          echo "Remote refs containing 6.1.138:"
+          echo "FILTER 6.1.138:"
           git ls-remote origin | grep '6.1.138' || true
 
           echo ""
-          echo "Searching local Makefile history..."
-
-          git log \
-            --all \
-            -S'SUBLEVEL = 138' \
-            --oneline \
-            -- Makefile \
-            -20 \
-            || true
-
-          echo ""
           echo "========================================"
-          echo "FIND COMPLETE"
+          echo "SEARCH COMPLETE"
           echo "========================================"
-
-      - name: Check HWID source
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "CHECK HWID SOURCE"
-          echo "========================================"
-
-          echo ""
-          echo "HWID directory:"
-
-          if [ -d "drivers/misc/hwid" ]; then
-            echo "FOUND: drivers/misc/hwid"
-            find drivers/misc/hwid \
-              -maxdepth 2 \
-              -type f \
-              | sort
-          else
-            echo "MISSING: drivers/misc/hwid"
-          fi
-
-          echo ""
-          echo "HWID references:"
-
-          grep -R \
-            -n \
-            -E 'drivers/misc/hwid|CONFIG_HWID' \
-            drivers/misc \
-            xiaomi_sm8650_common.bzl \
-            2>/dev/null \
-            || true
-
-      - name: Stop if source is not 6.1.138
-        run: |
-          set -e
-
-          VERSION="$(make -s kernelversion)"
-
-          echo ""
-          echo "Detected kernel version: $VERSION"
-
-          if [ "$VERSION" != "6.1.138" ]; then
-            echo ""
-            echo "========================================"
-            echo "SOURCE IS NOT 6.1.138"
-            echo "========================================"
-            echo ""
-            echo "The current uke-v-oss branch is:"
-            echo "$VERSION"
-            echo ""
-            echo "No build will be attempted."
-            echo ""
-            echo "This run was only used to locate"
-            echo "the correct 6.1.138 source."
-            exit 1
-          fi
-
-          echo ""
-          echo "Kernel version OK: 6.1.138"
-
-      - name: Install build dependencies
-        if: success()
-        run: |
-          set -e
-
-          sudo apt-get update
-
-          sudo apt-get install -y \
-            git \
-            bc \
-            bison \
-            flex \
-            build-essential \
-            clang \
-            lld \
-            llvm \
-            libssl-dev \
-            libelf-dev \
-            libdw-dev \
-            dwarves \
-            python3 \
-            cpio \
-            rsync \
-            wget \
-            unzip \
-            xz-utils \
-            zstd
-
-      - name: Download stock boot.img
-        if: success()
-        run: |
-          set -e
-
-          wget -q --show-progress \
-            -O boot.img \
-            "https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img"
-
-          echo ""
-          echo "boot.img:"
-          stat -c%s boot.img
-
-          echo ""
-          echo "SHA256:"
-          sha256sum boot.img
-
-      - name: Extract stock kernel
-        if: success()
-        run: |
-          set -e
-
-          mkdir -p stock
-
-          dd \
-            if=boot.img \
-            of=stock/kernel \
-            bs=4096 \
-            skip=1 \
-            count=8645 \
-            status=progress
-
-          echo ""
-          echo "Stock kernel size:"
-          stat -c%s stock/kernel
-
-          echo ""
-          echo "Stock kernel:"
-          file stock/kernel
-
-      - name: Extract stock config
-        if: success()
-        run: |
-          set -e
-
-          wget -q \
-            -O extract-ikconfig \
-            "https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-ikconfig"
-
-          chmod +x extract-ikconfig
-
-          ./extract-ikconfig \
-            stock/kernel \
-            > stock.config \
-            2> stock-config-error.txt \
-            || true
-
-          echo "Stock config size:"
-          stat -c%s stock.config
-
-          echo ""
-          echo "Stock config lines:"
-          wc -l stock.config
-
-          if [ ! -s stock.config ]; then
-            echo ""
-            echo "ERROR: Could not extract stock.config"
-            cat stock-config-error.txt || true
-            exit 1
-          fi
-
-          echo ""
-          echo "Stock config successfully extracted."
-
-      - name: Save stock config
-        if: success()
-        run: |
-          set -e
-
-          mkdir -p arch/arm64/configs
-
-          cp stock.config \
-            arch/arm64/configs/stock_pad7_defconfig
-
-          echo "Stock config installed:"
-          wc -l arch/arm64/configs/stock_pad7_defconfig
-
-      - name: Prepare compiler
-        if: success()
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "COMPILER"
-          echo "========================================"
-
-          clang --version
-          ld.lld --version
-
-      - name: Clean previous build
-        if: success()
-        run: |
-          set -e
-
-          make mrproper
-
-      - name: Load stock Pad 7 config
-        if: success()
-        run: |
-          set -e
-
-          mkdir -p out
-
-          cp stock.config \
-            out/.config
-
-          echo "Running olddefconfig..."
-
-          make \
-            O=out \
-            ARCH=arm64 \
-            olddefconfig
-
-          echo ""
-          echo "Final config:"
-
-          grep -E \
-            '^CONFIG_(IKCONFIG|KALLSYMS|KALLSYMS_ALL|MODULES|BPF|BPF_SYSCALL|SECURITY|SECURITYFS|SECURITY_SELINUX)' \
-            out/.config \
-            || true
-
-      - name: Verify final kernel config
-        if: success()
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "FINAL CONFIG CHECK"
-          echo "========================================"
-
-          echo "CONFIG_ARM64:"
-          grep '^CONFIG_ARM64=' out/.config || true
-
-          echo ""
-          echo "CONFIG_MODULES:"
-          grep '^CONFIG_MODULES=' out/.config || true
-
-          echo ""
-          echo "CONFIG_KALLSYMS:"
-          grep '^CONFIG_KALLSYMS=' out/.config || true
-
-          echo ""
-          echo "CONFIG_KALLSYMS_ALL:"
-          grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
-
-      - name: Build kernel
-        if: success()
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "BUILD STOCK KERNEL"
-          echo "========================================"
-
-          make \
-            -j"$(nproc)" \
-            O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            Image
-
-      - name: Check build output
-        if: success()
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "BUILD RESULT"
-          echo "========================================"
-
-          if [ ! -f out/arch/arm64/boot/Image ]; then
-            echo "ERROR: Image was not produced."
-            exit 1
-          fi
-
-          echo ""
-          echo "Image:"
-          ls -lh out/arch/arm64/boot/Image
-
-          echo ""
-          echo "Image SHA256:"
-          sha256sum out/arch/arm64/boot/Image
-
-          echo ""
-          echo "Image file:"
-          file out/arch/arm64/boot/Image
-
-      - name: Create build report
-        if: success()
-        run: |
-          set -e
-
-          mkdir -p report
-
-          {
-            echo "========================================"
-            echo "PAD 7 STOCK KERNEL BUILD REPORT"
-            echo "========================================"
-
-            echo ""
-            echo "SOURCE COMMIT:"
-            git rev-parse HEAD
-
-            echo ""
-            echo "SOURCE KERNEL VERSION:"
-            make -s kernelversion
-
-            echo ""
-            echo "STOCK CONFIG:"
-            wc -l stock.config
-            sha256sum stock.config
-
-            echo ""
-            echo "FINAL CONFIG:"
-            sha256sum out/.config
-
-            echo ""
-            echo "BUILT IMAGE:"
-            ls -lh out/arch/arm64/boot/Image
-            sha256sum out/arch/arm64/boot/Image
-            file out/arch/arm64/boot/Image
-
-            echo ""
-            echo "========================================"
-            echo "STEP 6 COMPLETE"
-            echo "========================================"
-
-          } | tee report/FINAL-REPORT.txt
-
-      - name: Upload build artifacts
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pad7-step6-kernel-build
-          path: |
-            out/arch/arm64/boot/Image
-            out/.config
-            stock.config
-            report/FINAL-REPORT.txt
