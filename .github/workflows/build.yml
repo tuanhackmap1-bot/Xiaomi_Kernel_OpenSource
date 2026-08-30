@@ -1,435 +1,176 @@
-name: Step 6 - Build Stock Kernel 6.1.138
+name: Step 7 - Prepare KernelSU SUSFS 6.1
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - uke-v-oss
 
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout official Xiaomi UKE
+      - name: Checkout GKI 6.1.138
         uses: actions/checkout@v4
         with:
-          repository: MiCode/Xiaomi_Kernel_OpenSource
-          ref: 5712080a4b0c0b1a879e6d145c601c649ddaddfd
+          repository: android/kernel_common
+          ref: android14-6.1.138_r00
           fetch-depth: 1
 
-      - name: Show source information
+      - name: Show kernel version
         run: |
           set -e
 
           echo "========================================"
-          echo "XIAOMI KERNEL SOURCE"
+          echo "GKI SOURCE"
           echo "========================================"
 
-          echo ""
-          echo "Commit:"
           git rev-parse HEAD
-
-          echo ""
-          echo "Kernel version:"
           make -s kernelversion
 
-          echo ""
-          echo "Makefile:"
-          grep -E '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' Makefile
-
-      - name: Verify Xiaomi source
-        run: |
-          set -e
-
-          VERSION="$(make -s kernelversion)"
-
-          echo "Xiaomi source version: $VERSION"
-
-          if [ "$VERSION" != "6.1.68" ]; then
-            echo "Unexpected Xiaomi source version."
-            exit 1
-          fi
-
-          echo "Xiaomi UKE source confirmed."
-
-      - name: Install build dependencies
+      - name: Install dependencies
         run: |
           set -e
 
           sudo apt-get update
 
           sudo apt-get install -y \
-            git \
             bc \
             bison \
-            flex \
             build-essential \
             clang \
+            flex \
+            git \
+            libdw-dev \
+            libelf-dev \
+            libssl-dev \
             lld \
             llvm \
-            libssl-dev \
-            libelf-dev \
-            libdw-dev \
-            dwarves \
+            pahole \
             python3 \
-            cpio \
-            rsync \
-            wget \
-            unzip \
-            xz-utils \
-            zstd
+            rsync
 
-      - name: Download stock boot.img
+      - name: Clone KernelSU
         run: |
           set -e
 
-          wget -q --show-progress \
-            -O boot.img \
-            "https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img"
+          git clone \
+            --depth=1 \
+            https://github.com/tiann/KernelSU.git \
+            KernelSU
 
-          echo ""
-          echo "boot.img:"
-          stat -c%s boot.img
-
-          echo ""
-          echo "SHA256:"
-          sha256sum boot.img
-
-      - name: Extract stock kernel
+      - name: Clone SUSFS
         run: |
           set -e
 
-          mkdir -p stock
+          git clone \
+            --depth=1 \
+            --branch gki-android14-6.1 \
+            https://github.com/deepongi-labs/susfs4ksu.git \
+            susfs
 
-          dd \
-            if=boot.img \
-            of=stock/kernel \
-            bs=4096 \
-            skip=1 \
-            count=8645 \
-            status=progress
-
-          echo ""
-          echo "Stock kernel size:"
-          stat -c%s stock/kernel
-
-          echo ""
-          echo "Stock kernel:"
-          file stock/kernel
-
-      - name: Extract stock config
-        run: |
-          set -e
-
-          wget -q \
-            -O extract-ikconfig \
-            "https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-ikconfig"
-
-          chmod +x extract-ikconfig
-
-          ./extract-ikconfig \
-            stock/kernel \
-            > stock.config
-
-          if [ ! -s stock.config ]; then
-            echo "ERROR: Could not extract stock.config"
-            exit 1
-          fi
-
-          echo ""
-          echo "Stock config:"
-          wc -l stock.config
-
-      - name: Save stock config
-        run: |
-          set -e
-
-          mkdir -p arch/arm64/configs
-
-          cp stock.config \
-            arch/arm64/configs/stock_pad7_defconfig
-
-          echo "Stock config installed:"
-          wc -l arch/arm64/configs/stock_pad7_defconfig
-
-      - name: Prepare compiler
-        run: |
-          set -e
-
-          clang --version
-          ld.lld --version
-
-      - name: Check and fix missing HWID source
+      - name: Verify SUSFS kernel patch
         run: |
           set -e
 
           echo "========================================"
-          echo "HWID CHECK"
+          echo "SUSFS PATCH FILES"
           echo "========================================"
 
-          if [ -d drivers/misc/hwid ]; then
-            echo "HWID source exists."
-          else
-            echo "HWID source is missing."
+          find susfs/kernel_patches \
+            -maxdepth 2 \
+            -type f \
+            | sort
 
-            if grep -q 'source "drivers/misc/hwid/Kconfig"' drivers/misc/Kconfig; then
-              cp drivers/misc/Kconfig \
-                drivers/misc/Kconfig.before-hwid
+          echo ""
+          echo "6.1 kernel patch candidates:"
 
-              sed -i \
-                '/source "drivers\/misc\/hwid\/Kconfig"/d' \
-                drivers/misc/Kconfig
+          find susfs/kernel_patches \
+            -type f \
+            -name '*6.1*.patch' \
+            -print
 
-              echo "Removed missing HWID Kconfig reference."
-            fi
-          fi
+          echo ""
+          echo "KernelSU patch:"
 
-          if grep -n 'drivers/misc/hwid/Kconfig' drivers/misc/Kconfig; then
-            echo "ERROR: HWID Kconfig reference still exists."
-            exit 1
-          fi
+          test -f \
+            susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
 
-          echo "HWID check passed."
-
-      - name: Load stock Pad 7 config
+      - name: Integrate KernelSU
         run: |
           set -e
 
-          mkdir -p out
+          ./KernelSU/kernel/setup.sh
 
-          cp stock.config \
-            out/.config
+      - name: Apply SUSFS KernelSU patch
+        run: |
+          set -e
 
-          echo "========================================"
-          echo "REMOVE STOCK KMI WHITELIST"
-          echo "========================================"
+          cd KernelSU
 
-          echo ""
-          echo "Stock KMI settings:"
-          grep -E \
-            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)=' \
-            out/.config \
-            || true
+          patch -p1 \
+            < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
 
-          echo ""
-          echo "Removing KMI whitelist options before olddefconfig..."
+      - name: Install SUSFS kernel files
+        run: |
+          set -e
 
-          scripts/config \
-            --file out/.config \
-            -d TRIM_UNUSED_KSYMS \
-            -d UNUSED_KSYMS_WHITELIST
+          cp -a \
+            susfs/kernel_patches/fs/. \
+            fs/
 
-          echo ""
-          echo "KMI settings after first cleanup:"
-          grep -E \
-            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)=' \
-            out/.config \
-            || true
+          cp -a \
+            susfs/kernel_patches/include/linux/. \
+            include/linux/
 
-          echo ""
-          echo "Running olddefconfig..."
+      - name: Apply SUSFS 6.1 kernel patch
+        run: |
+          set -e
 
-          make \
-            O=out \
-            ARCH=arm64 \
-            olddefconfig
+          PATCH="$(find susfs/kernel_patches \
+            -type f \
+            -name '*6.1*.patch' \
+            | head -n 1)"
 
-          echo ""
-          echo "Cleaning KMI whitelist again after olddefconfig..."
+          test -n "$PATCH"
 
-          scripts/config \
-            --file out/.config \
-            -d TRIM_UNUSED_KSYMS \
-            -d UNUSED_KSYMS_WHITELIST
+          echo "Using:"
+          echo "$PATCH"
 
-          echo ""
-          echo "Running olddefconfig second time..."
+          patch -p1 < "$PATCH"
 
-          make \
-            O=out \
-            ARCH=arm64 \
-            olddefconfig
+      - name: Remove protected exports
+        run: |
+          set -e
 
-          echo ""
-          echo "========================================"
-          echo "VERIFY KMI CONFIG"
-          echo "========================================"
+          rm -f \
+            android/abi_gki_protected_exports_aarch64 \
+            android/abi_gki_protected_exports_x86_64
 
-          echo ""
-          echo "out/.config:"
-          grep -E \
-            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)=' \
-            out/.config \
-            || true
-
-          echo ""
-          echo "include/config/auto.conf:"
-          grep -E \
-            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)=' \
-            out/include/config/auto.conf \
-            || true
-
-          if grep -q '^CONFIG_UNUSED_KSYMS_WHITELIST=' out/.config; then
-            echo "ERROR: UNUSED_KSYMS_WHITELIST is still enabled."
-            exit 1
-          fi
-
-          if grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y' out/.config; then
-            echo "ERROR: TRIM_UNUSED_KSYMS is still enabled."
-            exit 1
-          fi
-
-          if grep -q '^CONFIG_UNUSED_KSYMS_WHITELIST=' out/include/config/auto.conf; then
-            echo "ERROR: auto.conf still contains UNUSED_KSYMS_WHITELIST."
-            exit 1
-          fi
-
-          if grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y' out/include/config/auto.conf; then
-            echo "ERROR: auto.conf still contains TRIM_UNUSED_KSYMS."
-            exit 1
-          fi
-
-          echo ""
-          echo "KMI whitelist successfully disabled."
-
-          echo ""
-          echo "Final config:"
-          grep -E \
-            '^CONFIG_(IKCONFIG|KALLSYMS|KALLSYMS_ALL|MODULES|BPF|BPF_SYSCALL|SECURITY|SECURITYFS|SECURITY_SELINUX)' \
-            out/.config \
-            || true
-
-      - name: Verify final kernel config
+      - name: Verify SUSFS config
         run: |
           set -e
 
           echo "========================================"
-          echo "FINAL CONFIG CHECK"
+          echo "VERIFY SUSFS"
           echo "========================================"
 
-          echo ""
-          echo "CONFIG_ARM64:"
-          grep '^CONFIG_ARM64=' out/.config || true
+          test -d KernelSU
+          test -f KernelSU/kernel/Kconfig
+
+          grep -Rni \
+            'CONFIG_KSU_SUSFS' \
+            KernelSU/kernel/Kconfig \
+            | head -20
 
           echo ""
-          echo "CONFIG_MODULES:"
-          grep '^CONFIG_MODULES=' out/.config || true
+          echo "SUSFS source integrated successfully."
 
-          echo ""
-          echo "CONFIG_KALLSYMS:"
-          grep '^CONFIG_KALLSYMS=' out/.config || true
-
-          echo ""
-          echo "CONFIG_KALLSYMS_ALL:"
-          grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
-
-          echo ""
-          echo "KMI options:"
-          grep -E \
-            '^CONFIG_(TRIM_UNUSED_KSYMS|UNUSED_KSYMS_WHITELIST)' \
-            out/.config \
-            || true
-
-      - name: Build kernel
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "BUILD STOCK KERNEL"
-          echo "========================================"
-
-          make \
-            -j"$(nproc)" \
-            O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            Image
-
-      - name: Check build output
-        if: always()
-        run: |
-          set +e
-
-          echo "========================================"
-          echo "BUILD RESULT"
-          echo "========================================"
-
-          if [ ! -f out/arch/arm64/boot/Image ]; then
-            echo "ERROR: Image was not produced."
-            exit 1
-          fi
-
-          echo ""
-          echo "Image:"
-          ls -lh out/arch/arm64/boot/Image
-
-          echo ""
-          echo "Image SHA256:"
-          sha256sum out/arch/arm64/boot/Image
-
-          echo ""
-          echo "Image file:"
-          file out/arch/arm64/boot/Image
-
-      - name: Create build report
-        if: always()
-        run: |
-          set +e
-
-          mkdir -p report
-
-          {
-            echo "========================================"
-            echo "PAD 7 STOCK KERNEL BUILD REPORT"
-            echo "========================================"
-
-            echo ""
-            echo "SOURCE COMMIT:"
-            git rev-parse HEAD
-
-            echo ""
-            echo "SOURCE KERNEL VERSION:"
-            make -s kernelversion
-
-            echo ""
-            echo "STOCK CONFIG:"
-            wc -l stock.config 2>/dev/null || true
-            sha256sum stock.config 2>/dev/null || true
-
-            echo ""
-            echo "FINAL CONFIG:"
-            sha256sum out/.config 2>/dev/null || true
-
-            echo ""
-            echo "BUILT IMAGE:"
-            ls -lh out/arch/arm64/boot/Image 2>/dev/null || true
-            sha256sum out/arch/arm64/boot/Image 2>/dev/null || true
-            file out/arch/arm64/boot/Image 2>/dev/null || true
-
-            echo ""
-            echo "========================================"
-            echo "STEP 6 COMPLETE"
-            echo "========================================"
-
-          } | tee report/FINAL-REPORT.txt
-
-      - name: Upload build artifacts
-        if: always()
+      - name: Upload patched GKI source
         uses: actions/upload-artifact@v4
         with:
-          name: pad7-step6-kernel-build
+          name: gki-6.1.138-kernelsu-susfs-source
           path: |
-            out/arch/arm64/boot/Image
-            out/.config
-            stock.config
-            report/FINAL-REPORT.txt
+            KernelSU/
+            fs/
+            include/linux/
+            android/
