@@ -225,7 +225,40 @@ jobs:
           else
             echo "MISSING: drivers/misc/hwid"
           fi
+      - name: Handle missing HWID source
+        run: |
+          set -e
 
+          echo "========================================"
+          echo "HANDLE MISSING HWID"
+          echo "========================================"
+
+          if [ ! -d "drivers/misc/hwid" ]; then
+            echo "HWID source is missing."
+
+            cp drivers/misc/Kconfig \
+              drivers/misc/Kconfig.before-hwid
+
+            sed -i \
+              '/source "drivers\/misc\/hwid\/Kconfig"/d' \
+              drivers/misc/Kconfig
+
+            echo "Removed missing HWID Kconfig reference."
+          else
+            echo "HWID source exists."
+          fi
+
+          echo ""
+          echo "Checking Kconfig reference:"
+
+          if grep -n \
+            'drivers/misc/hwid/Kconfig' \
+            drivers/misc/Kconfig; then
+            echo "ERROR: HWID Kconfig reference still exists."
+            exit 1
+          fi
+
+          echo "HWID Kconfig check passed."
       - name: Load stock Pad 7 config
         run: |
           set -e
