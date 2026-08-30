@@ -1,54 +1,42 @@
-name: Find Kernel Version History
+name: Check 6.1.138 Remote
 
 on:
   workflow_dispatch:
 
 jobs:
-  find:
+  check:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout full history
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Find version history
+      - name: Check Xiaomi remote
         run: |
           set -e
 
+          URL="https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource.git"
+
           echo "========================================"
-          echo "KERNEL VERSION HISTORY"
+          echo "REMOTE BRANCHES"
           echo "========================================"
 
-          echo "Current:"
-          make -s kernelversion
+          git ls-remote --heads "$URL"
 
           echo ""
-          echo "Commits changing Makefile:"
-          git log --all --oneline -- Makefile | head -100
+          echo "========================================"
+          echo "REMOTE TAGS"
+          echo "========================================"
+
+          git ls-remote --tags "$URL" | grep -E '6\.1\.138|uke' || true
 
           echo ""
-          echo "Search 6.1.138 in Makefile history:"
-          git log --all -S'138' --oneline -- Makefile | head -100
+          echo "========================================"
+          echo "CHECK SPECIFIC VERSION"
+          echo "========================================"
+
+          git ls-remote "$URL" | grep -E \
+            '6\.1\.138|android14.*138|uke.*138|138.*uke' \
+            || true
 
           echo ""
-          echo "Search 6.1.68 in Makefile history:"
-          git log --all -S'68' --oneline -- Makefile | head -100
-
-          echo ""
-          echo "Search Android 6.1.138:"
-          git log --all \
-            --oneline \
-            --grep='6.1.138' \
-            --grep='138' \
-            | head -100
-
-          echo ""
-          echo "Branches:"
-          git branch -a
-
-          echo ""
-          echo "Tags:"
-          git tag --list | tail -100
+          echo "========================================"
+          echo "DONE"
+          echo "========================================
