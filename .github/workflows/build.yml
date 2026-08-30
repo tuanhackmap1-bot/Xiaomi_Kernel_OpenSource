@@ -1,4 +1,4 @@
-name: Step 6 - Find Xiaomi Kernel 6.1.138
+name: Step 6 - Find Google GKI 6.1.138
 
 on:
   workflow_dispatch:
@@ -8,28 +8,25 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout official Xiaomi repository
-        uses: actions/checkout@v4
-        with:
-          repository: MiCode/Xiaomi_Kernel_OpenSource
-          ref: uke-v-oss
-          fetch-depth: 0
-
-      - name: Check current kernel
+      - name: Get Google GKI 6.1.138
         run: |
           set -e
 
           echo "========================================"
-          echo "CURRENT XIAOMI UKE SOURCE"
+          echo "GET GOOGLE GKI 6.1.138"
           echo "========================================"
+
+          git clone \
+            --depth=1 \
+            --branch android14-6.1.138_r00 \
+            https://android.googlesource.com/kernel/common \
+            gki-6.1.138
+
+          cd gki-6.1.138
 
           echo ""
           echo "Commit:"
           git rev-parse HEAD
-
-          echo ""
-          echo "Branch:"
-          git branch --show-current || true
 
           echo ""
           echo "Kernel version:"
@@ -37,31 +34,20 @@ jobs:
 
           echo ""
           echo "Makefile:"
-          grep -E \
-            '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' \
-            Makefile
+          grep -E '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' Makefile
 
-      - name: Search remote 6.1.138
-        run: |
-          set -e
+          VERSION="$(make -s kernelversion)"
 
-          echo "========================================"
-          echo "SEARCH REMOTE 6.1.138"
-          echo "========================================"
-
-          echo ""
-          echo "REMOTE BRANCHES:"
-          git ls-remote --heads origin
-
-          echo ""
-          echo "REMOTE TAGS:"
-          git ls-remote --tags origin
-
-          echo ""
-          echo "FILTER 6.1.138:"
-          git ls-remote origin | grep '6.1.138' || true
+          if [ "$VERSION" != "6.1.138" ]; then
+            echo ""
+            echo "ERROR: WRONG KERNEL VERSION"
+            echo "Detected: $VERSION"
+            echo "Required: 6.1.138"
+            exit 1
+          fi
 
           echo ""
           echo "========================================"
-          echo "SEARCH COMPLETE"
+          echo "SUCCESS"
+          echo "GOOGLE GKI 6.1.138 FOUND"
           echo "========================================"
