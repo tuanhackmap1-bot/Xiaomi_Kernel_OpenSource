@@ -1,4 +1,4 @@
-name: Check 6.1.138 Remote
+name: Check 6138
 
 on:
   workflow_dispatch:
@@ -8,35 +8,11 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Check Xiaomi remote
+      - name: Check branches
         run: |
-          set -e
+          git ls-remote --heads https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource.git
 
-          URL="https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource.git"
-
-          echo "========================================"
-          echo "REMOTE BRANCHES"
-          echo "========================================"
-
-          git ls-remote --heads "$URL"
-
-          echo ""
-          echo "========================================"
-          echo "REMOTE TAGS"
-          echo "========================================"
-
-          git ls-remote --tags "$URL" | grep -E '6\.1\.138|uke' || true
-
-          echo ""
-          echo "========================================"
-          echo "CHECK SPECIFIC VERSION"
-          echo "========================================"
-
-          git ls-remote "$URL" | grep -E \
-            '6\.1\.138|android14.*138|uke.*138|138.*uke' \
-            || true
-
-          echo ""
-          echo "========================================"
-          echo "DONE"
-          echo "========================================
+      - name: Check 6138
+        run: |
+          git ls-remote --heads https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource.git | grep '138' || true
+          git ls-remote --tags https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource.git | grep '138' || true
