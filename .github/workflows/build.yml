@@ -259,8 +259,8 @@ jobs:
           fi
 
           echo "HWID Kconfig check passed."
-          - name: Load stock Pad 7 config
-         run: |
+                - name: Load stock Pad 7 config
+          run: |
           set -e
 
           mkdir -p out
@@ -268,13 +268,12 @@ jobs:
           cp stock.config \
             out/.config
 
-          echo "Preparing kernel config..."
+          echo "Running olddefconfig..."
 
           make \
             O=out \
             ARCH=arm64 \
-            olddefconfig \
-            KMI_SYMBOL_LIST_STRICT=0
+            olddefconfig
 
           echo ""
           echo "Final config:"
