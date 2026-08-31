@@ -1,4 +1,4 @@
-name: GKI 6.1.138 - KernelSU Next - SUSFS
+name: GKI 6.1.138 KernelSU Next SUSFS
 
 on:
   workflow_dispatch:
@@ -12,19 +12,13 @@ jobs:
 
     steps:
 
-      # ============================================================
-      # 1. ANDROID COMMON 6.1.138
-      # ============================================================
-      - name: Checkout Android Common
+      - name: Checkout Android Common 6.1.138
         uses: actions/checkout@v4
         with:
           repository: android/kernel_common
           ref: android14-6.1-2025-06
           fetch-depth: 1
 
-      # ============================================================
-      # 2. TOOLS
-      # ============================================================
       - name: Install dependencies
         run: |
           set -eux
@@ -52,62 +46,40 @@ jobs:
             xz-utils \
             zstd
 
-      # ============================================================
-      # 3. VERIFY KERNEL
-      # ============================================================
-      - name: Verify kernel 6.1.138
+      - name: Verify kernel
         run: |
           set -eux
 
           VERSION="$(make -s kernelversion)"
 
           echo "========================================"
-          echo "KERNEL VERSION"
+          echo "KERNEL"
           echo "========================================"
-
           echo "Detected: $VERSION"
 
-          if [ "$VERSION" != "6.1.138" ]; then
-            echo ""
-            echo "ERROR: WRONG KERNEL VERSION"
-            echo "Expected: 6.1.138"
-            echo "Detected: $VERSION"
-            exit 1
-          fi
+          test "$VERSION" = "6.1.138"
 
-          echo ""
-          echo "6.1.138 OK."
+      # ------------------------------------------------------------
+      # KernelSU Next
+      # ------------------------------------------------------------
 
-      # ============================================================
-      # 4. KERNELSU NEXT
-      # ============================================================
-      - name: Setup KernelSU Next
+      - name: Install KernelSU Next
         run: |
           set -eux
 
-          echo "========================================"
-          echo "KERNELSU NEXT"
-          echo "========================================"
-
           curl -LSs \
-            "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" \
-            | bash -
+            https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh \
+            | bash -s next
 
           test -d drivers/kernelsu
 
-          echo ""
-          echo "KernelSU installed."
+      # ------------------------------------------------------------
+      # SUSFS
+      # ------------------------------------------------------------
 
-      # ============================================================
-      # 5. CLONE SUSFS - VERIFIED REPOSITORY
-      # ============================================================
-      - name: Clone SUSFS
+      - name: Clone SUSFS 6.1
         run: |
           set -eux
-
-          echo "========================================"
-          echo "CLONE SUSFS"
-          echo "========================================"
 
           rm -rf susfs
 
@@ -117,26 +89,21 @@ jobs:
             https://github.com/deepongi-labs/susfs4ksu.git \
             susfs
 
-          echo ""
-          echo "SUSFS commit:"
-          git -C susfs rev-parse HEAD
+          echo "========================================"
+          echo "SUSFS PATCHES"
+          echo "========================================"
 
-          echo ""
-          echo "SUSFS patch files:"
           find susfs/kernel_patches \
             -maxdepth 2 \
             -type f \
             | sort
 
-      # ============================================================
-      # 6. FIND CORRECT 6.1 PATCH
-      # ============================================================
-      - name: Find SUSFS 6.1 patch
+      - name: Find correct SUSFS 6.1 patch
         run: |
           set -eux
 
           echo "========================================"
-          echo "FIND SUSFS 6.1 PATCH"
+          echo "FIND 6.1 PATCH"
           echo "========================================"
 
           PATCH="$(find susfs/kernel_patches \
@@ -144,31 +111,26 @@ jobs:
             -type f \
             -name '50_add_susfs_in_kernel-6.1*.patch' \
             | sort \
-            | head -1)"
+            | head -n 1)"
 
           if [ -z "$PATCH" ]; then
             echo ""
-            echo "ERROR: NO SUSFS 6.1 PATCH FOUND."
+            echo "ERROR: NO SUSFS 6.1 PATCH FOUND"
             echo ""
-            echo "Available kernel patches:"
+            echo "Available patches:"
             find susfs/kernel_patches \
-              -maxdepth 1 \
+              -maxdepth 2 \
               -type f \
-              -name '50_add_susfs_in_kernel*.patch' \
               | sort
-
             exit 1
           fi
 
-          echo "Found:"
+          echo "FOUND:"
           echo "$PATCH"
 
-          echo "SUSFS_KERNEL_PATCH=$PATCH" >> "$GITHUB_ENV"
+          echo "SUSFS_PATCH=$GITHUB_WORKSPACE/$PATCH" >> "$GITHUB_ENV"
 
-      # ============================================================
-      # 7. COPY SUSFS FILES
-      # ============================================================
-      - name: Copy SUSFS kernel files
+      - name: Apply SUSFS files
         run: |
           set -eux
 
@@ -176,25 +138,15 @@ jobs:
           echo "COPY SUSFS FILES"
           echo "========================================"
 
-          test -f "$SUSFS_KERNEL_PATCH"
-
-          cp "$SUSFS_KERNEL_PATCH" .
-
-          cp \
+          cp -fv \
             susfs/kernel_patches/fs/* \
             fs/
 
-          cp \
+          cp -fv \
             susfs/kernel_patches/include/linux/* \
             include/linux/
 
-          echo ""
-          echo "SUSFS files copied."
-
-      # ============================================================
-      # 8. PATCH KERNELSU
-      # ============================================================
-      - name: Patch KernelSU for SUSFS
+      - name: Apply SUSFS KernelSU patch
         run: |
           set -eux
 
@@ -202,64 +154,31 @@ jobs:
           echo "PATCH KERNELSU"
           echo "========================================"
 
-          KSU_PATCH="$(find susfs/kernel_patches/KernelSU \
-            -maxdepth 1 \
-            -type f \
-            -name '10_enable_susfs_for_ksu.patch' \
-            | head -1)"
+          KSU_PATCH="susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
 
-          if [ -z "$KSU_PATCH" ]; then
-            echo "ERROR: KernelSU SUSFS patch missing."
-            exit 1
-          fi
-
-          cp "$KSU_PATCH" drivers/kernelsu/
+          test -f "$KSU_PATCH"
 
           cd drivers/kernelsu
 
-          patch \
-            -p1 \
-            --batch \
-            < 10_enable_susfs_for_ksu.patch
+          patch -p1 < "$GITHUB_WORKSPACE/$KSU_PATCH"
 
-          cd ../..
-
-          echo "KernelSU SUSFS patch applied."
-
-      # ============================================================
-      # 9. APPLY SUSFS KERNEL PATCH
-      # ============================================================
       - name: Apply SUSFS kernel patch
         run: |
           set -eux
 
           echo "========================================"
-          echo "APPLY SUSFS"
+          echo "PATCH KERNEL"
           echo "========================================"
 
-          echo "Patch:"
-          echo "$SUSFS_KERNEL_PATCH"
+          cd "$GITHUB_WORKSPACE"
 
-          PATCH_FILE="$(basename "$SUSFS_KERNEL_PATCH")"
+          patch -p1 < "$SUSFS_PATCH"
 
-          test -f "$PATCH_FILE"
+      # ------------------------------------------------------------
+      # Verify SUSFS was actually applied
+      # ------------------------------------------------------------
 
-          echo ""
-          echo "Applying:"
-          echo "$PATCH_FILE"
-
-          patch \
-            -p1 \
-            --batch \
-            < "$PATCH_FILE"
-
-          echo ""
-          echo "SUSFS kernel patch applied."
-
-      # ============================================================
-      # 10. VERIFY SUSFS
-      # ============================================================
-      - name: Verify SUSFS
+      - name: Verify SUSFS integration
         run: |
           set -eux
 
@@ -267,40 +186,34 @@ jobs:
           echo "VERIFY SUSFS"
           echo "========================================"
 
-          test -f fs/susfs.c
-          test -f include/linux/susfs.h
-
           echo ""
-          echo "SUSFS source:"
-          ls -lh fs/susfs.c
-          ls -lh include/linux/susfs.h
+          echo "SUSFS files:"
+
+          find fs include/linux drivers/kernelsu \
+            -type f \
+            \( \
+              -iname '*susfs*' \
+              -o \
+              -name 'susfs.c' \
+            \) \
+            -print \
+            | sort
 
           echo ""
           echo "SUSFS Kconfig:"
+
           grep -R \
             -n \
-            "CONFIG_KSU_SUSFS" \
+            'CONFIG_KSU_SUSFS' \
             drivers/kernelsu \
-            fs \
-            include \
             2>/dev/null \
-            | head -100 \
+            | head -50 \
             || true
 
-      # ============================================================
-      # 11. REMOVE GKI PROTECTED EXPORT FILES
-      # ============================================================
-      - name: Prepare GKI protected exports
-        run: |
-          set -eux
+      # ------------------------------------------------------------
+      # GKI config
+      # ------------------------------------------------------------
 
-          rm -f \
-            android/abi_gki_protected_exports_aarch64 \
-            android/abi_gki_protected_exports_x86_64
-
-      # ============================================================
-      # 12. GKI DEFCONFIG
-      # ============================================================
       - name: Create GKI config
         run: |
           set -eux
@@ -313,10 +226,7 @@ jobs:
             ARCH=arm64 \
             gki_defconfig
 
-      # ============================================================
-      # 13. ENABLE KSU + SUSFS
-      # ============================================================
-      - name: Enable KSU SUSFS config
+      - name: Enable KernelSU SUSFS
         run: |
           set -eux
 
@@ -324,7 +234,7 @@ jobs:
           echo "ENABLE KSU + SUSFS"
           echo "========================================"
 
-          chmod +x scripts/config || true
+          chmod +x scripts/config
 
           scripts/config \
             --file out/.config \
@@ -344,15 +254,23 @@ jobs:
           echo "SUSFS:"
           grep '^CONFIG_KSU_SUSFS=' out/.config
 
-      # ============================================================
-      # 14. BUILD
-      # ============================================================
-      - name: Build kernel
+      # ------------------------------------------------------------
+      # Build
+      # ------------------------------------------------------------
+
+      - name: Show compiler
+        run: |
+          set -eux
+
+          clang --version
+          ld.lld --version
+
+      - name: Build Image
         run: |
           set -eux
 
           echo "========================================"
-          echo "BUILD 6.1.138"
+          echo "BUILD"
           echo "========================================"
 
           make \
@@ -370,74 +288,26 @@ jobs:
             STRIP=llvm-strip \
             Image
 
-      # ============================================================
-      # 15. VERIFY
-      # ============================================================
       - name: Verify build
         run: |
           set -eux
 
           IMAGE="out/arch/arm64/boot/Image"
 
-          echo "========================================"
-          echo "BUILD RESULT"
-          echo "========================================"
-
           test -f "$IMAGE"
 
-          echo ""
+          echo "========================================"
+          echo "SUCCESS"
+          echo "========================================"
+
           ls -lh "$IMAGE"
 
-          echo ""
           sha256sum "$IMAGE"
 
-          echo ""
-          file "$IMAGE"
-
-      # ============================================================
-      # 16. REPORT
-      # ============================================================
-      - name: Create report
-        run: |
-          set -eux
-
-          mkdir -p report
-
-          {
-            echo "========================================"
-            echo "6.1.138 KERNELSU NEXT SUSFS"
-            echo "========================================"
-            echo ""
-            echo "SOURCE:"
-            git rev-parse HEAD
-            echo ""
-            echo "KERNEL:"
-            make -s kernelversion
-            echo ""
-            echo "KERNELSU:"
-            grep '^CONFIG_KSU=' out/.config
-            echo ""
-            echo "SUSFS:"
-            grep '^CONFIG_KSU_SUSFS=' out/.config
-            echo ""
-            echo "SUSFS COMMIT:"
-            git -C susfs rev-parse HEAD
-            echo ""
-            echo "IMAGE:"
-            ls -lh out/arch/arm64/boot/Image
-            echo ""
-            echo "IMAGE SHA256:"
-            sha256sum out/arch/arm64/boot/Image
-          } | tee report/FINAL-REPORT.txt
-
-      # ============================================================
-      # 17. ARTIFACT
-      # ============================================================
-      - name: Upload artifact
+      - name: Upload Image
         uses: actions/upload-artifact@v4
         with:
-          name: pad7-6.1.138-kernelsu-next-susfs
+          name: pad7-6.1.138-ksunext-susfs
           path: |
             out/arch/arm64/boot/Image
             out/.config
-            report/FINAL-REPORT.txt
