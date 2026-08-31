@@ -1,19 +1,21 @@
-name: Step 7 - GKI 6.1.138 + KernelSU + SUSFS
+name: Build Pad 7 Kernel
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - uke-v-oss
 
 jobs:
-  prepare:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
 
     steps:
-      - name: Checkout GKI 6.1.138
+      - name: Checkout official Xiaomi UKE
         uses: actions/checkout@v4
         with:
-          repository: android/kernel_common
-          ref: android14-6.1.138_r00
+          repository: MiCode/Xiaomi_Kernel_OpenSource
+          ref: 5712080a4b0c0b1a879e6d145c601c649ddaddfd
           fetch-depth: 1
 
       - name: Install dependencies
@@ -27,181 +29,288 @@ jobs:
             bison \
             build-essential \
             clang \
+            cpio \
             flex \
-            git \
-            libdw-dev \
             libelf-dev \
             libssl-dev \
             lld \
             llvm \
-            pahole \
             python3 \
-            rsync
+            rsync \
+            unzip \
+            wget \
+            xz-utils \
+            zstd
 
-      - name: Verify GKI
+      - name: Show source information
         run: |
           set -e
 
           echo "========================================"
-          echo "GKI VERSION"
+          echo "XIAOMI UKE SOURCE"
           echo "========================================"
 
           echo "Commit:"
           git rev-parse HEAD
 
           echo ""
+          echo "Branch:"
+          git branch --show-current || true
+
+          echo ""
           echo "Kernel version:"
           make -s kernelversion
 
-          test "$(make -s kernelversion)" = "6.1.138"
+          echo ""
+          echo "Makefile:"
+          grep -E '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' Makefile
 
-      - name: Clone SUSFS stable branch
-        run: |
-          set -e
-
-          git clone \
-            --depth=1 \
-            --branch gki-android14-6.1 \
-            https://github.com/deepongi-labs/susfs4ksu.git \
-            susfs
-
-          echo "SUSFS commit:"
-          git -C susfs rev-parse HEAD
-
-      - name: Clone KernelSU release
-        run: |
-          set -e
-
-          git clone \
-            --depth=1 \
-            --branch v3.2.4 \
-            https://github.com/tiann/KernelSU.git \
-            KernelSU
-
-          echo "KernelSU commit:"
-          git -C KernelSU rev-parse HEAD
-
-      - name: Check SUSFS patch compatibility
+      - name: Check missing Xiaomi HWID source
         run: |
           set -e
 
           echo "========================================"
-          echo "CHECK KSU / SUSFS COMPATIBILITY"
+          echo "CHECK HWID"
           echo "========================================"
 
-          test -f \
-            susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
-
-          test -f \
-            susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch
+          echo "HWID references:"
+          git grep -n -i "drivers/misc/hwid" || true
 
           echo ""
-          echo "Testing KernelSU patch..."
+          echo "HWID directory:"
 
-          cd KernelSU
+          if [ -d drivers/misc/hwid ]; then
+            echo "FOUND"
+            find drivers/misc/hwid -maxdepth 2 -type f -print
+          else
+            echo "MISSING"
+          fi
 
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+      - name: Download stock boot image
+        run: |
+          set -e
 
-          cp \
-            ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch \
-            .
-
-          patch \
-            --dry-run \
-            -p1 \
-            < 10_enable_susfs_for_ksu.patch
+          wget -q --show-progress \
+            -O boot.img \
+            "https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img"
 
           echo ""
-          echo "KernelSU SUSFS patch compatibility: OK"
+          echo "boot.img:"
+          ls -lh boot.img
 
-      - name: Integrate KernelSU
+          echo ""
+          echo "SHA256:"
+          sha256sum boot.img
+
+      - name: Extract stock kernel
         run: |
           set -e
 
-          ./KernelSU/kernel/setup.sh
+          mkdir -p stock
 
-      - name: Apply SUSFS KernelSU patch
+          dd \
+            if=boot.img \
+            of=stock/kernel \
+            bs=4096 \
+            skip=1 \
+            count=8645 \
+            status=progress
+
+          echo ""
+          echo "Stock kernel:"
+          ls -lh stock/kernel
+
+          file stock/kernel
+
+      - name: Extract stock config
         run: |
           set -e
 
-          cd KernelSU
+          wget -q \
+            -O extract-ikconfig \
+            "https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-ikconfig"
 
-          patch \
-            -p1 \
-            < 10_enable_susfs_for_ksu.patch
+          chmod +x extract-ikconfig
 
-      - name: Install SUSFS kernel files
-        run: |
-          set -e
+          ./extract-ikconfig \
+            stock/kernel \
+            > stock.config \
+            2> stock-config-error.txt \
+            || true
 
-          cp \
-            susfs/kernel_patches/fs/susfs.c \
-            fs/susfs.c
+          if [ ! -s stock.config ]; then
+            echo "ERROR: stock.config extraction failed"
+            cat stock-config-error.txt || true
+            exit 1
+          fi
 
-          cp \
-            susfs/kernel_patches/include/linux/susfs.h \
-            include/linux/susfs.h
+          echo "Stock config:"
+          wc -l stock.config
 
-      - name: Apply SUSFS GKI 6.1 patch
-        run: |
-          set -e
-
-          cp \
-            susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch \
-            .
-
-          patch \
-            --dry-run \
-            -p1 \
-            < 50_add_susfs_in_gki-android14-6.1.patch
-
-          patch \
-            -p1 \
-            < 50_add_susfs_in_gki-android14-6.1.patch
-
-      - name: Remove GKI protected exports
-        run: |
-          set -e
-
-          rm -f \
-            android/abi_gki_protected_exports_aarch64 \
-            android/abi_gki_protected_exports_x86_64
-
-      - name: Verify SUSFS integration
+      - name: Check stock config
         run: |
           set -e
 
           echo "========================================"
-          echo "VERIFY SUSFS"
+          echo "STOCK CONFIG"
           echo "========================================"
 
-          test -f fs/susfs.c
-          test -f include/linux/susfs.h
-          test -f KernelSU/kernel/Kconfig
+          grep -E \
+            '^CONFIG_(ARM64|MODULES|KALLSYMS|KALLSYMS_ALL|BPF|BPF_SYSCALL|SECURITY|SECURITYFS|SECURITY_SELINUX)' \
+            stock.config \
+            || true
+
+      - name: Prepare output
+        run: |
+          set -e
+
+          mkdir -p out
+
+          cp stock.config out/.config
+
+      - name: Run olddefconfig
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "OLDDEFCONFIG"
+          echo "========================================"
+
+          make \
+            O=out \
+            ARCH=arm64 \
+            olddefconfig
+
+      - name: Verify configuration
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "CONFIGURATION RESULT"
+          echo "========================================"
+
+          grep '^CONFIG_ARM64=' out/.config || true
+          grep '^CONFIG_MODULES=' out/.config || true
+          grep '^CONFIG_KALLSYMS=' out/.config || true
+          grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
+
+      - name: Check SUSFS patch
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "SUSFS PATCH CHECK"
+          echo "========================================"
+
+          if [ ! -f susfs.patch ]; then
+            echo "No susfs.patch found."
+            echo "Skipping SUSFS patch."
+            exit 0
+          fi
+
+          echo "Patch found:"
+          ls -lh susfs.patch
 
           echo ""
-          echo "SUSFS files:"
-          ls -lh \
-            fs/susfs.c \
-            include/linux/susfs.h
+          echo "Patch targets:"
+          grep -E \
+            '^\+\+\+ b/|^--- a/' \
+            susfs.patch \
+            | head -100
 
           echo ""
-          echo "KernelSU SUSFS symbols:"
-          grep -Rni \
-            "CONFIG_KSU_SUSFS" \
-            KernelSU/kernel \
-            | head -20
+          echo "Checking kernel/supercalls.c..."
+
+          if [ -f kernel/supercalls.c ]; then
+            echo "kernel/supercalls.c EXISTS"
+          else
+            echo "kernel/supercalls.c DOES NOT EXIST"
+            echo ""
+            echo "SUSFS patch does not match this Xiaomi source tree."
+            echo "Patch will NOT be applied."
+          fi
+
+      - name: Build kernel
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "BUILD KERNEL"
+          echo "========================================"
+
+          make \
+            -j"$(nproc)" \
+            O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            Image
+
+      - name: Check Image
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "BUILD RESULT"
+          echo "========================================"
+
+          if [ ! -f out/arch/arm64/boot/Image ]; then
+            echo "ERROR: Image not produced."
+            exit 1
+          fi
+
+          ls -lh out/arch/arm64/boot/Image
 
           echo ""
-          echo "SUSFS integration completed."
+          echo "SHA256:"
+          sha256sum out/arch/arm64/boot/Image
 
-      - name: Upload patched source
+          echo ""
+          echo "File:"
+          file out/arch/arm64/boot/Image
+
+      - name: Create report
+        run: |
+          set -e
+
+          mkdir -p report
+
+          {
+            echo "PAD 7 KERNEL BUILD REPORT"
+            echo "========================="
+            echo ""
+            echo "Commit:"
+            git rev-parse HEAD
+            echo ""
+            echo "Kernel version:"
+            make -s kernelversion
+            echo ""
+            echo "Stock config SHA256:"
+            sha256sum stock.config
+            echo ""
+            echo "Final config SHA256:"
+            sha256sum out/.config
+            echo ""
+            echo "Image SHA256:"
+            sha256sum out/arch/arm64/boot/Image
+            echo ""
+            echo "Image:"
+            ls -lh out/arch/arm64/boot/Image
+          } | tee report/FINAL-REPORT.txt
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gki-6.1.138-kernelsu-susfs-source
+          name: pad7-kernel-build
           path: |
-            KernelSU/
-            fs/susfs.c
-            include/linux/susfs.h
-            android/
+            out/arch/arm64/boot/Image
+            out/.config
+            stock.config
+            report/FINAL-REPORT.txt
