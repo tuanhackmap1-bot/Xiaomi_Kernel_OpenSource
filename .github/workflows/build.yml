@@ -1,81 +1,176 @@
-name: Pad 7 - KernelSU Next
+name: Pad 7 - KernelSU Next - Stock Build
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout Xiaomi UKE
+
+      # ============================================================
+      # 1. CHECKOUT OFFICIAL XIAOMI UKE
+      # ============================================================
+      - name: Checkout official Xiaomi UKE
         uses: actions/checkout@v4
         with:
           repository: MiCode/Xiaomi_Kernel_OpenSource
           ref: 5712080a4b0c0b1a879e6d145c601c649ddaddfd
           fetch-depth: 1
+          submodules: false
 
+      # ============================================================
+      # 2. INSTALL BUILD TOOLS
+      # ============================================================
       - name: Install dependencies
         run: |
-          set -e
+          set -eux
+
           sudo apt-get update
+
           sudo apt-get install -y \
-            bc bison build-essential clang flex git \
-            lld llvm libelf-dev libssl-dev pahole \
-            pkg-config python3 rsync unzip zip cpio \
-            wget xz-utils zstd
+            bc \
+            bison \
+            build-essential \
+            clang \
+            flex \
+            git \
+            lld \
+            llvm \
+            libelf-dev \
+            libssl-dev \
+            pahole \
+            pkg-config \
+            python3 \
+            rsync \
+            cpio \
+            unzip \
+            wget \
+            xz-utils \
+            zstd
 
-      - name: Check source
+      # ============================================================
+      # 3. VERIFY SOURCE
+      # ============================================================
+      - name: Verify Xiaomi source
         run: |
-          set -e
+          set -eux
+
           echo "========================================"
-          echo "SOURCE"
+          echo "XIAOMI SOURCE"
           echo "========================================"
 
+          echo "Commit:"
           git rev-parse HEAD
+
+          echo ""
+          echo "Branch:"
+          git branch --show-current || true
+
           echo ""
           echo "Kernel version:"
           make -s kernelversion
 
           echo ""
-          echo "HWID:"
-          if [ -d drivers/misc/hwid ]; then
-            echo "FOUND"
-          else
-            echo "MISSING"
+          echo "Makefile:"
+          grep -E \
+            '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' \
+            Makefile
+
+      # ============================================================
+      # 4. STOP IF SOURCE IS NOT 6.1.138
+      # ============================================================
+      - name: Verify required kernel version
+        run: |
+          set -eux
+
+          VERSION="$(make -s kernelversion)"
+
+          echo "Detected: $VERSION"
+          echo "Required: 6.1.138"
+
+          if [ "$VERSION" != "6.1.138" ]; then
+            echo ""
+            echo "========================================"
+            echo "WRONG KERNEL SOURCE"
+            echo "========================================"
+            echo ""
+            echo "This checkout is:"
+            echo "$VERSION"
+            echo ""
+            echo "The required stock kernel is:"
+            echo "6.1.138"
+            echo ""
+            echo "BUILD STOPPED."
+            exit 1
           fi
 
-      - name: Remove unavailable HWID Kconfig reference
+          echo "Kernel version OK."
+
+      # ============================================================
+      # 5. CHECK HWID
+      # ============================================================
+      - name: Check HWID source
         run: |
-          set -e
+          set -eux
+
+          echo "========================================"
+          echo "HWID CHECK"
+          echo "========================================"
 
           if [ ! -d drivers/misc/hwid ]; then
-            sed -i \
-              '/source "drivers\/misc\/hwid\/Kconfig"/d' \
-              drivers/misc/Kconfig
+            echo ""
+            echo "ERROR:"
+            echo "drivers/misc/hwid is missing."
+            echo ""
+            echo "The public Xiaomi source is incomplete."
+            echo "A stock-compatible kernel cannot be built"
+            echo "without the required HWID source."
+            echo ""
+            exit 1
           fi
 
-          echo "HWID Kconfig reference:"
-          grep -n \
-            'drivers/misc/hwid/Kconfig' \
-            drivers/misc/Kconfig \
-            || true
+          if [ ! -f drivers/misc/hwid/Kconfig ]; then
+            echo ""
+            echo "ERROR:"
+            echo "drivers/misc/hwid/Kconfig is missing."
+            exit 1
+          fi
 
-      - name: Download stock boot
+          echo "HWID source OK."
+
+      # ============================================================
+      # 6. DOWNLOAD STOCK BOOT
+      # ============================================================
+      - name: Download stock boot.img
         run: |
-          set -e
+          set -eux
 
-          wget -q --show-progress \
+          wget \
+            --show-progress \
             -O boot.img \
             "https://github.com/tuanhackmap1-bot/Xiaomi_Kernel_OpenSource/releases/download/boot-analysis/boot.img"
 
+          echo ""
+          echo "boot.img:"
           ls -lh boot.img
+
+          echo ""
+          echo "SHA256:"
           sha256sum boot.img
 
+      # ============================================================
+      # 7. EXTRACT STOCK KERNEL
+      # ============================================================
       - name: Extract stock kernel
         run: |
-          set -e
+          set -eux
 
+          rm -rf stock
           mkdir -p stock
 
           dd \
@@ -86,14 +181,21 @@ jobs:
             count=8645 \
             status=progress
 
+          echo ""
+          echo "Stock kernel:"
           ls -lh stock/kernel
+
+          echo ""
           file stock/kernel
 
+      # ============================================================
+      # 8. EXTRACT STOCK CONFIG
+      # ============================================================
       - name: Extract stock config
         run: |
-          set -e
+          set -eux
 
-          wget -q \
+          wget \
             -O extract-ikconfig \
             "https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-ikconfig"
 
@@ -102,29 +204,64 @@ jobs:
           ./extract-ikconfig \
             stock/kernel \
             > stock.config \
-            2>extract-error.txt \
+            2>extract-ikconfig-error.txt \
             || true
 
           if [ ! -s stock.config ]; then
-            echo "ERROR: stock config extraction failed"
-            cat extract-error.txt || true
+            echo ""
+            echo "ERROR: stock.config extraction failed."
+            cat extract-ikconfig-error.txt || true
             exit 1
           fi
 
+          echo ""
+          echo "Stock config:"
           wc -l stock.config
 
-      - name: Prepare config
+      # ============================================================
+      # 9. CHECK STOCK CONFIG
+      # ============================================================
+      - name: Inspect stock config
         run: |
-          set -e
+          set -eux
+
+          echo "========================================"
+          echo "STOCK CONFIG"
+          echo "========================================"
+
+          grep '^CONFIG_ARM64=' stock.config || true
+          grep '^CONFIG_MODULES=' stock.config || true
+          grep '^CONFIG_KALLSYMS=' stock.config || true
+          grep '^CONFIG_KALLSYMS_ALL=' stock.config || true
+          grep '^CONFIG_COMPAT=' stock.config || true
+
+      # ============================================================
+      # 10. CLEAN
+      # ============================================================
+      - name: Clean kernel tree
+        run: |
+          set -eux
+
+          make mrproper
+
+      # ============================================================
+      # 11. PREPARE OUT
+      # ============================================================
+      - name: Prepare output
+        run: |
+          set -eux
 
           rm -rf out
           mkdir -p out
 
           cp stock.config out/.config
 
-      - name: Setup KernelSU Next
+      # ============================================================
+      # 12. SETUP KERNELSU-NEXT
+      # ============================================================
+      - name: Setup KernelSU-Next
         run: |
-          set -e
+          set -eux
 
           echo "========================================"
           echo "KERNELSU-NEXT"
@@ -132,45 +269,96 @@ jobs:
 
           curl -LSs \
             "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
-            | bash -s v3.3.0
+            | bash
+
+          echo ""
+          echo "Checking KernelSU..."
 
           test -d drivers/kernelsu
           test -f drivers/kernelsu/Kconfig
 
           echo "KernelSU-Next installed."
 
-      - name: Run olddefconfig
+      # ============================================================
+      # 13. ENABLE KSU WITHOUT INTERACTIVE CONFIG
+      # ============================================================
+      - name: Enable KernelSU
         run: |
-          set -e
+          set -eux
 
           echo "========================================"
-          echo "OLDDEFCONFIG"
+          echo "ENABLE KERNELSU"
           echo "========================================"
 
-          yes "" | make \
+          if [ -x scripts/config ]; then
+            scripts/config \
+              --file out/.config \
+              --enable CONFIG_KSU
+          else
+            echo "scripts/config not available yet."
+            echo "KernelSU will use its Kconfig default."
+          fi
+
+      # ============================================================
+      # 14. OLDDEFCONFIG
+      # ============================================================
+      - name: Generate kernel config
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "GENERATE CONFIG"
+          echo "========================================"
+
+          make \
             O=out \
             ARCH=arm64 \
             olddefconfig
 
-          echo "olddefconfig OK"
+          echo ""
+          echo "Config generated."
 
-      - name: Check KernelSU
+      # ============================================================
+      # 15. VERIFY KSU
+      # ============================================================
+      - name: Verify KernelSU
         run: |
-          set -e
+          set -eux
 
           echo "========================================"
-          echo "KERNELSU CONFIG"
+          echo "VERIFY KERNELSU"
           echo "========================================"
 
-          grep '^CONFIG_KSU=' out/.config || true
+          grep '^CONFIG_KSU=' out/.config
+
+          echo ""
+          echo "KernelSU options:"
           grep '^CONFIG_KSU' out/.config || true
 
-      - name: Build Image
+      # ============================================================
+      # 16. COMPILER
+      # ============================================================
+      - name: Show compiler
         run: |
-          set -e
+          set -eux
 
           echo "========================================"
-          echo "BUILD"
+          echo "COMPILER"
+          echo "========================================"
+
+          clang --version
+          echo ""
+          ld.lld --version
+
+      # ============================================================
+      # 17. BUILD
+      # ============================================================
+      - name: Build kernel Image
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "BUILD KERNEL"
           echo "========================================"
 
           make \
@@ -188,56 +376,80 @@ jobs:
             STRIP=llvm-strip \
             Image
 
-      - name: Verify Image
+      # ============================================================
+      # 18. VERIFY IMAGE
+      # ============================================================
+      - name: Verify build
         run: |
-          set -e
+          set -eux
 
           IMAGE="out/arch/arm64/boot/Image"
 
+          echo "========================================"
+          echo "BUILD RESULT"
+          echo "========================================"
+
           test -f "$IMAGE"
 
-          echo "========================================"
-          echo "SUCCESS"
-          echo "========================================"
-
+          echo ""
+          echo "Image:"
           ls -lh "$IMAGE"
 
           echo ""
+          echo "SHA256:"
           sha256sum "$IMAGE"
 
           echo ""
+          echo "File:"
           file "$IMAGE"
 
+      # ============================================================
+      # 19. REPORT
+      # ============================================================
       - name: Create report
         run: |
-          set -e
+          set -eux
 
           mkdir -p report
 
           {
-            echo "PAD 7 KERNELSU-NEXT"
-            echo "=================="
+            echo "========================================"
+            echo "PAD 7 KERNELSU-NEXT BUILD"
+            echo "========================================"
             echo ""
-            echo "Commit:"
+            echo "SOURCE COMMIT:"
             git rev-parse HEAD
             echo ""
-            echo "Kernel version:"
+            echo "KERNEL VERSION:"
             make -s kernelversion
             echo ""
-            echo "KernelSU:"
-            grep '^CONFIG_KSU=' out/.config || true
+            echo "KERNELSU:"
+            grep '^CONFIG_KSU=' out/.config
             echo ""
-            echo "Image:"
+            echo "STOCK CONFIG:"
+            sha256sum stock.config
+            echo ""
+            echo "FINAL CONFIG:"
+            sha256sum out/.config
+            echo ""
+            echo "IMAGE:"
             ls -lh out/arch/arm64/boot/Image
             echo ""
-            echo "SHA256:"
+            echo "IMAGE SHA256:"
             sha256sum out/arch/arm64/boot/Image
+            echo ""
+            echo "========================================"
+            echo "BUILD SUCCESS"
+            echo "========================================"
           } | tee report/FINAL-REPORT.txt
 
-      - name: Upload artifact
+      # ============================================================
+      # 20. ARTIFACT
+      # ============================================================
+      - name: Upload kernel
         uses: actions/upload-artifact@v4
         with:
-          name: pad7-kernelsu-next-test
+          name: pad7-kernelsu-next
           path: |
             out/arch/arm64/boot/Image
             out/.config
