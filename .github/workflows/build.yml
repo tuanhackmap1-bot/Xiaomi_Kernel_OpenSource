@@ -1,4 +1,4 @@
-name: Build Pad 7 Kernel
+name: Pad 7 - KernelSU Next Build
 
 on:
   workflow_dispatch:
@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+
       - name: Checkout official Xiaomi UKE
         uses: actions/checkout@v4
         with:
@@ -29,43 +30,41 @@ jobs:
             bison \
             build-essential \
             clang \
-            cpio \
             flex \
+            git \
             libelf-dev \
             libssl-dev \
             lld \
             llvm \
             python3 \
             rsync \
-            unzip \
+            cpio \
             wget \
+            unzip \
             xz-utils \
             zstd
 
-      - name: Show source information
+      - name: Show source
         run: |
           set -e
 
           echo "========================================"
-          echo "XIAOMI UKE SOURCE"
+          echo "XIAOMI PAD 7 UKE"
           echo "========================================"
 
           echo "Commit:"
           git rev-parse HEAD
 
           echo ""
-          echo "Branch:"
-          git branch --show-current || true
-
-          echo ""
           echo "Kernel version:"
           make -s kernelversion
 
           echo ""
-          echo "Makefile:"
-          grep -E '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' Makefile
+          grep -E \
+            '^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION' \
+            Makefile
 
-      - name: Check missing Xiaomi HWID source
+      - name: Check HWID
         run: |
           set -e
 
@@ -73,20 +72,47 @@ jobs:
           echo "CHECK HWID"
           echo "========================================"
 
-          echo "HWID references:"
-          git grep -n -i "drivers/misc/hwid" || true
-
-          echo ""
-          echo "HWID directory:"
-
           if [ -d drivers/misc/hwid ]; then
-            echo "FOUND"
-            find drivers/misc/hwid -maxdepth 2 -type f -print
+            echo "HWID directory exists."
           else
-            echo "MISSING"
+            echo "HWID directory is missing."
           fi
 
-      - name: Download stock boot image
+          echo ""
+          echo "Reference:"
+          grep -n \
+            'drivers/misc/hwid/Kconfig' \
+            drivers/misc/Kconfig \
+            || true
+
+      - name: Remove missing HWID dependency
+        run: |
+          set -e
+
+          if [ ! -d drivers/misc/hwid ]; then
+
+            echo "HWID source missing."
+            echo "Removing broken Kconfig reference."
+
+            sed -i \
+              '/source "drivers\/misc\/hwid\/Kconfig"/d' \
+              drivers/misc/Kconfig
+
+          else
+
+            echo "HWID source exists."
+            echo "Nothing to change."
+
+          fi
+
+          echo ""
+          echo "Remaining HWID reference:"
+          grep -n \
+            'drivers/misc/hwid/Kconfig' \
+            drivers/misc/Kconfig \
+            || true
+
+      - name: Download stock boot
         run: |
           set -e
 
@@ -120,8 +146,6 @@ jobs:
           echo "Stock kernel:"
           ls -lh stock/kernel
 
-          file stock/kernel
-
       - name: Extract stock config
         run: |
           set -e
@@ -135,7 +159,7 @@ jobs:
           ./extract-ikconfig \
             stock/kernel \
             > stock.config \
-            2> stock-config-error.txt \
+            2>stock-config-error.txt \
             || true
 
           if [ ! -s stock.config ]; then
@@ -144,29 +168,59 @@ jobs:
             exit 1
           fi
 
+          echo ""
           echo "Stock config:"
           wc -l stock.config
 
-      - name: Check stock config
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "STOCK CONFIG"
-          echo "========================================"
-
-          grep -E \
-            '^CONFIG_(ARM64|MODULES|KALLSYMS|KALLSYMS_ALL|BPF|BPF_SYSCALL|SECURITY|SECURITYFS|SECURITY_SELINUX)' \
-            stock.config \
-            || true
-
-      - name: Prepare output
+      - name: Prepare build output
         run: |
           set -e
 
           mkdir -p out
 
           cp stock.config out/.config
+
+      - name: Setup KernelSU Next
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "KERNELSU NEXT"
+          echo "========================================"
+
+          curl -LSs \
+            "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" \
+            | bash
+
+      - name: Verify KernelSU Next
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "VERIFY KERNELSU NEXT"
+          echo "========================================"
+
+          if [ ! -d drivers/kernelsu ]; then
+            echo "ERROR: drivers/kernelsu was not created."
+            exit 1
+          fi
+
+          echo "KernelSU directory:"
+          ls -la drivers/kernelsu
+
+          echo ""
+          echo "KernelSU Kconfig:"
+          grep -n \
+            'drivers/kernelsu/Kconfig' \
+            drivers/Kconfig \
+            || true
+
+          echo ""
+          echo "KernelSU Makefile:"
+          grep -n \
+            'kernelsu' \
+            drivers/Makefile \
+            || true
 
       - name: Run olddefconfig
         run: |
@@ -181,56 +235,32 @@ jobs:
             ARCH=arm64 \
             olddefconfig
 
-      - name: Verify configuration
+      - name: Check KernelSU config
         run: |
           set -e
 
           echo "========================================"
-          echo "CONFIGURATION RESULT"
+          echo "KERNELSU CONFIG"
           echo "========================================"
 
-          grep '^CONFIG_ARM64=' out/.config || true
-          grep '^CONFIG_MODULES=' out/.config || true
-          grep '^CONFIG_KALLSYMS=' out/.config || true
-          grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
-
-      - name: Check SUSFS patch
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "SUSFS PATCH CHECK"
-          echo "========================================"
-
-          if [ ! -f susfs.patch ]; then
-            echo "No susfs.patch found."
-            echo "Skipping SUSFS patch."
-            exit 0
-          fi
-
-          echo "Patch found:"
-          ls -lh susfs.patch
-
-          echo ""
-          echo "Patch targets:"
           grep -E \
-            '^\+\+\+ b/|^--- a/' \
-            susfs.patch \
-            | head -100
+            '^CONFIG_KSU=' \
+            out/.config \
+            || true
 
-          echo ""
-          echo "Checking kernel/supercalls.c..."
+          grep -E \
+            '^CONFIG_KSU_SUSFS' \
+            out/.config \
+            || true
 
-          if [ -f kernel/supercalls.c ]; then
-            echo "kernel/supercalls.c EXISTS"
-          else
-            echo "kernel/supercalls.c DOES NOT EXIST"
-            echo ""
-            echo "SUSFS patch does not match this Xiaomi source tree."
-            echo "Patch will NOT be applied."
-          fi
+      - name: Prepare compiler
+        run: |
+          set -e
 
-      - name: Build kernel
+          clang --version
+          ld.lld --version
+
+      - name: Build kernel Image
         run: |
           set -e
 
@@ -253,7 +283,7 @@ jobs:
             STRIP=llvm-strip \
             Image
 
-      - name: Check Image
+      - name: Verify Image
         run: |
           set -e
 
@@ -262,19 +292,21 @@ jobs:
           echo "========================================"
 
           if [ ! -f out/arch/arm64/boot/Image ]; then
-            echo "ERROR: Image not produced."
+            echo "ERROR: Image not found."
             exit 1
           fi
 
-          ls -lh out/arch/arm64/boot/Image
+          ls -lh \
+            out/arch/arm64/boot/Image
 
           echo ""
           echo "SHA256:"
-          sha256sum out/arch/arm64/boot/Image
+          sha256sum \
+            out/arch/arm64/boot/Image
 
           echo ""
-          echo "File:"
-          file out/arch/arm64/boot/Image
+          file \
+            out/arch/arm64/boot/Image
 
       - name: Create report
         run: |
@@ -283,32 +315,35 @@ jobs:
           mkdir -p report
 
           {
-            echo "PAD 7 KERNEL BUILD REPORT"
+            echo "PAD 7 KERNELSU NEXT BUILD"
             echo "========================="
             echo ""
-            echo "Commit:"
+            echo "SOURCE COMMIT:"
             git rev-parse HEAD
             echo ""
-            echo "Kernel version:"
+            echo "KERNEL VERSION:"
             make -s kernelversion
             echo ""
-            echo "Stock config SHA256:"
+            echo "KERNELSU:"
+            grep -E '^CONFIG_KSU=' out/.config || true
+            echo ""
+            echo "STOCK CONFIG SHA256:"
             sha256sum stock.config
             echo ""
-            echo "Final config SHA256:"
+            echo "FINAL CONFIG SHA256:"
             sha256sum out/.config
             echo ""
-            echo "Image SHA256:"
+            echo "IMAGE SHA256:"
             sha256sum out/arch/arm64/boot/Image
             echo ""
-            echo "Image:"
+            echo "IMAGE:"
             ls -lh out/arch/arm64/boot/Image
           } | tee report/FINAL-REPORT.txt
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pad7-kernel-build
+          name: pad7-kernelsu-next
           path: |
             out/arch/arm64/boot/Image
             out/.config
